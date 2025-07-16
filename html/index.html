@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Modern Inventory</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body {
+      width:100%; height:100%;
+      background:transparent; overflow:hidden;
+      user-select:none;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    .hidden {
+      display: none !important;
+    }
+    #inventory {
+      position:absolute; top:50%; left:50%;
+      transform:translate(-50%,-50%);
+      width:740px; height:520px;
+      background:rgba(20,22,27,0.95);
+      border:1px solid rgba(80,85,100,0.4);
+      border-radius:12px; box-shadow:0 15px 30px rgba(0,0,0,0.6);
+      display:flex; flex-direction:column;
+    }
+    #inventory.hidden { display:none; }
+    .inventory-header {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:18px 24px;
+      background:rgba(30,33,40,0.9);
+      border-bottom:1px solid rgba(60,65,80,0.5);
+    }
+    .inventory-header h2 {
+      color:#e0e4f0; font-size:1.6rem; font-weight:600;
+      letter-spacing:0.5px; text-shadow:0 1px 2px rgba(0,0,0,0.4);
+    }
+    .player-info { display:flex; gap:25px; }
+    .info-box {
+      display:flex; align-items:center; gap:8px;
+      padding:6px 12px;
+      background:rgba(40,45,55,0.7);
+      border:1px solid rgba(70,75,90,0.5);
+      border-radius:6px; color:#a0a8c0; font-size:0.9rem;
+    }
+    .info-box i { color:#6a7bff; font-size:1.1rem; }
+    .info-value { font-weight:600; color:#e0e4f0; }
+    .inventory-content { flex:1; display:flex; }
+    .categories {
+      width:140px; background:rgba(25,28,35,0.9);
+      border-right:1px solid rgba(60,65,80,0.5);
+      padding-top:15px;
+    }
+    .category {
+      display:flex; align-items:center; gap:10px;
+      padding:12px 20px; font-size:0.95rem; color:#a0a8c0;
+      cursor:pointer; position:relative; transition:all .2s;
+    }
+    .category:hover { background:rgba(45,50,65,0.5); color:#d0d8f0; }
+    .category.active {
+      background:rgba(55,60,80,0.7); color:#fff;
+    }
+    .category.active::before {
+      content:''; position:absolute; left:0; top:0;
+      height:100%; width:4px; background:#6a7bff; border-radius:0 3px 3px 0;
+    }
+    .category i { font-size:1.1rem; width:20px; text-align:center; }
+    .items-grid {
+      flex:1; padding:20px; overflow-y:auto;
+      display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr));
+      grid-gap:15px;
+    }
+    .slot {
+      background:rgba(35,40,50,0.7);
+      border:1px solid rgba(70,75,90,0.4);
+      border-radius:8px; height:110px;
+      display:flex; flex-direction:column;
+      align-items:center; justify-content:center;
+      cursor:pointer; position:relative; transition:all .2s;
+    }
+    .slot:hover {
+      transform:translateY(-3px);
+      box-shadow:0 8px 15px rgba(0,0,0,0.3);
+      background:rgba(45,50,65,0.8);
+      border-color:rgba(90,100,150,0.6);
+    }
+    .slot-img {
+      width:50px; height:50px; margin-bottom:8px;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .slot-img img {
+      max-width:90%; max-height:90%; object-fit:contain;
+    }
+    .slot-fallback {
+      width:40px; height:40px; border-radius:50%;
+      background:rgba(90,100,150,0.2);
+      display:flex; align-items:center; justify-content:center;
+      color:#6a7bff; font-size:1.5rem;
+    }
+    .slot-name {
+      font-size:0.75rem; color:#c0c8e0;
+      text-align:center; padding:0 8px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .slot-count {
+      position:absolute; top:8px; right:8px;
+      background:rgba(106,123,255,0.9);
+      padding:3px 8px; border-radius:20px;
+      color:#fff; font-size:0.8rem; font-weight:600;
+      min-width:26px; text-align:center;
+    }
+    .inventory-footer {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:15px 24px;
+      background:rgba(30,33,40,0.9);
+      border-top:1px solid rgba(60,65,80,0.5);
+    }
+    .instructions { color:#9098b0; font-size:0.85rem; }
+    .action-buttons { display:flex; gap:12px; }
+    .inv-btn {
+      display:flex; align-items:center; gap:8px;
+      padding:8px 18px; font-weight:500; font-size:0.95rem;
+      color:#d0d8f0; background:rgba(60,65,80,0.8);
+      border:1px solid rgba(80,85,100,0.4); border-radius:6px;
+      cursor:pointer; transition:all .2s;
+    }
+    .inv-btn:hover { background:rgba(80,90,120,0.8); }
+    .btn-close { background:rgba(180,70,70,0.8); }
+    .btn-close:hover { background:rgba(200,80,80,0.9); }
+    #ctxMenu {
+      position:absolute; display:none; z-index:1000;
+      background:rgba(35,40,50,0.95);
+      border:1px solid rgba(90,100,150,0.6);
+      border-radius:8px; backdrop-filter:blur(5px);
+      overflow:hidden; min-width:150px;
+    }
+    #ctxMenu .item {
+      display:flex; align-items:center; gap:10px;
+      padding:12px 20px; font-size:0.95rem; color:#d0d8f0;
+      cursor:pointer; transition:all .2s;
+    }
+    #ctxMenu .item:hover {
+      background:rgba(65,75,105,0.8); color:#fff;
+    }
+    /* ----- SHOP UI: match inventory style ----- */
+    #shop {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 740px;
+      height: 520px;
+      background: rgba(20,22,27,0.95);
+      border: 1px solid rgba(80,85,100,0.4);
+      border-radius: 12px;
+      box-shadow: 0 15px 30px rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      z-index: 100;             /* sit above world blips/etc */
+    }
+
+    #shop.hidden {
+      display: none !important;
+    }
+
+    #shop .inventory-header {
+      /* reuse your existing header style */
+    }
+
+    #shop .items-grid {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      grid-gap: 15px;
+    }
+    ::-webkit-scrollbar { width:8px; }
+    ::-webkit-scrollbar-track { background:rgba(30,33,40,0.3); border-radius:4px; }
+    ::-webkit-scrollbar-thumb { background:rgba(90,100,150,0.5); border-radius:4px; }
+    ::-webkit-scrollbar-thumb:hover { background:rgba(106,123,255,0.7); }
+    @font-face {
+      font-family:'Font Awesome'; font-style:normal; font-weight:400;
+      src:url("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/webfonts/fa-solid-900.woff2")
+          format("woff2");
+    }
+    .fa { font-family:'Font Awesome'; font-weight:900; }
+    .fa-user:before{content:"\f007"} .fa-weight:before{content:"\f496"}
+    .fa-box:before{content:"\f466"} .fa-utensils:before{content:"\f2e7"}
+    .fa-pills:before{content:"\f484"} .fa-tools:before{content:"\f7d9"}
+    .fa-archive:before{content:"\f187"} .fa-times:before{content:"\f00d"}
+    .fa-search:before{content:"\f002"} .fa-filter:before{content:"\f0b0"}
+    .fa-cube:before{content:"\f1b2"} .fa-share:before{content:"\f064"}
+    .fa-info-circle:before{content:"\f05a"} .fa-trash:before{content:"\f1f8"}
+  </style>
+</head>
+<body>
+
+  <div id="inventory" class="hidden">
+    <div class="inventory-header">
+      <h2><i class="fa fa-archive"></i> INVENTORY</h2>
+      <div class="player-info">
+        <div class="info-box">
+          <i class="fa fa-user"></i>
+          <span>ID: <span class="info-value" id="playerId">---</span></span>
+        </div>
+        <div class="info-box">
+          <i class="fa fa-weight"></i>
+          <span>Weight: <span class="info-value" id="weightDisplay">0/0 kg</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="inventory-content">
+      <div class="categories">
+        <div class="category active" data-category="all">
+          <i class="fa fa-box"></i> All
+        </div>
+        <div class="category" data-category="weapons">
+          <i class="fa fa-cube"></i> Weapons
+        </div>
+        <div class="category" data-category="food">
+          <i class="fa fa-utensils"></i> Food
+        </div>
+        <div class="category" data-category="medical">
+          <i class="fa fa-pills"></i> Medical
+        </div>
+        <div class="category" data-category="tools">
+          <i class="fa fa-tools"></i> Tools
+        </div>
+        <div class="category" data-category="misc">
+          <i class="fa fa-archive"></i> Misc
+        </div>
+      </div>
+      <div class="items-grid" id="slots"></div>
+    </div>
+
+    <div class="inventory-footer">
+      <div class="instructions">
+        Left‑click = Use • Right‑click = Options • ESC = Close
+      </div>
+      <div class="action-buttons">
+        <button class="inv-btn" id="searchBtn">
+          <i class="fa fa-search"></i> Search
+        </button>
+        <button class="inv-btn" id="filterBtn">
+          <i class="fa fa-filter"></i> Filter
+        </button>
+        <button class="inv-btn btn-close" id="closeBtn">
+          <i class="fa fa-times"></i> Close
+        </button>
+      </div>
+    </div>
+    
+  </div>
+  <div id="shop" class="hidden">
+  <div class="inventory-header">
+    <h2><i class="fa fa-shopping-cart"></i> SHOP</h2>
+    <div class="player-info">
+      <div class="info-box">
+        <i class="fa fa-user"></i>
+        <span>ID: <span class="info-value" id="shopName">---</span></span>
+      </div>
+    </div>
+  </div>
+  <div class="items-grid" id="shopItems"></div>
+  <div class="inventory-footer">
+    <div class="instructions">Left-click = Buy • ESC = Close</div>
+  </div>
+</div>
+  <div id="ctxMenu"></div>
+
+<script>
+(() => {
+  // 1) Utility: log the resource name
+  const RNAME = typeof GetParentResourceName === 'function'
+    ? GetParentResourceName()
+    : 'UNKNOWN_RESOURCE';
+  console.log('[UI] Resource name →', RNAME);
+
+  // 2) State
+  let inventory = {}, defs = {}, currentSlot = null, currentCat = 'all';
+  let isShopOpen = false;
+
+  // 3) Render inventory slots
+  function renderSlots() {
+    const slots = document.getElementById('slots');
+    slots.innerHTML = '';
+    for (const [item, count] of Object.entries(inventory)) {
+      if (count <= 0) continue;
+      const def = defs[item] || {};
+      const cat = def.category || 'misc';
+      if (currentCat !== 'all' && cat !== currentCat) continue;
+
+      const slot = document.createElement('div');
+      slot.className = 'slot';
+      slot.dataset.item = item;
+
+      // image / fallback
+      const imgC = document.createElement('div');
+      imgC.className = 'slot-img';
+      if (def.imageUrl) {
+        const img = new Image(); img.src = def.imageUrl; img.alt = item; imgC.append(img);
+      } else if (def.image) {
+        const img = new Image(); img.src = `img/${def.image}`; img.alt = item; imgC.append(img);
+      } else {
+        const fb = document.createElement('div');
+        fb.className = 'slot-fallback';
+        fb.textContent = item.split(' ').map(w => w[0]).join('').substr(0,2).toUpperCase();
+        imgC.append(fb);
+      }
+      slot.append(imgC);
+
+      // name & count
+      const nameEl = document.createElement('div');
+      nameEl.className = 'slot-name';
+      nameEl.textContent = def.label || item;
+      slot.append(nameEl);
+
+      const cnt = document.createElement('div');
+      cnt.className = 'slot-count';
+      cnt.textContent = count;
+      slot.append(cnt);
+
+      slots.append(slot);
+    }
+  }
+
+  // 4) NUI message handler for inventory
+  window.addEventListener('message', e => {
+    const d = e.data;
+    if (d.defs) defs = d.defs;
+    if (d.playerId !== undefined) {
+      document.getElementById('playerId').textContent = d.playerId;
+    }
+    if (typeof d.weight==='number' && typeof d.maxWeight==='number') {
+      document.getElementById('weightDisplay').textContent =
+        `${d.weight.toFixed(1)}/${d.maxWeight.toFixed(1)} kg`;
+    }
+    if (d.action==='show'||d.action==='updateItems') {
+      inventory = d.items||{};
+      document.getElementById('inventory').classList.remove('hidden');
+      renderSlots();
+    } else if (d.action==='hide') {
+      document.getElementById('inventory').classList.add('hidden');
+      hideCtx();
+    }
+  });
+
+  // 5) Category switching
+  document.querySelectorAll('.category').forEach(cat=>{
+    cat.addEventListener('click',()=>{
+      document.querySelectorAll('.category').forEach(c=>c.classList.remove('active'));
+      cat.classList.add('active');
+      currentCat = cat.dataset.category;
+      renderSlots();
+    });
+  });
+
+  // 6) Inventory slot click / contextmenu via delegation
+  const invGrid = document.getElementById('slots');
+  invGrid.addEventListener('click', e => {
+    const slot = e.target.closest('.slot');
+    if (!slot) return;
+    const item = slot.dataset.item;
+    console.log('[inv UI] useItem →', item);
+    fetch(`https://${RNAME}/useItem`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ item })
+    }).catch(err=>console.error('[inv UI] useItem error →',err));
+  });
+  invGrid.addEventListener('contextmenu', e => {
+    const slot = e.target.closest('.slot');
+    if (!slot) return;
+    e.preventDefault();
+    currentSlot = slot.dataset.item;
+    buildCtx(defs[currentSlot].options?.buttons || []);
+    showCtx(e.clientX, e.clientY);
+  });
+
+  // 7) Context menu helpers
+  function buildCtx(btns) {
+    const ctx = document.getElementById('ctxMenu');
+    ctx.innerHTML = '';
+    btns.forEach(b => {
+      const el = document.createElement('div');
+      el.className = 'item'; el.textContent = b.label;
+      el.addEventListener('click',()=>{
+        fetch(`https://${RNAME}/buttonAction`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ slot: currentSlot, actionKey: b.actionKey })
+        }).catch(err=>console.error('[inv UI] buttonAction error →',err));
+        hideCtx();
+      });
+      ctx.append(el);
+    });
+    // Always add Use/Drop as fallback
+    [['Use','useItem'],['Drop','dropItem']].forEach(([lbl,evt])=>{
+      const el=document.createElement('div');
+      el.className='item'; el.textContent=lbl;
+      el.addEventListener('click',()=>{
+        fetch(`https://${RNAME}/${evt}`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ item: currentSlot })
+        }).catch(err=>console.error(`[inv UI] ${evt} error →`,err));
+        hideCtx();
+      });
+      ctx.append(el);
+    });
+  }
+  function showCtx(x,y){
+    const ctx=document.getElementById('ctxMenu');
+    ctx.style.top=`${y}px`; ctx.style.left=`${x}px`; ctx.style.display='block';
+  }
+  function hideCtx(){
+    document.getElementById('ctxMenu').style.display='none';
+    currentSlot=null;
+  }
+
+  // 8) Inventory close handlers
+  document.getElementById('closeBtn').addEventListener('click',()=>fetch(`https://${RNAME}/close`,{method:'POST'}));
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') fetch(`https://${RNAME}/close`,{method:'POST'}); });
+
+  // 9) Shop rendering (unchanged)
+  function renderShop(shop) {
+    document.getElementById('shopName').textContent = shop.name;
+    const grid = document.getElementById('shopItems');
+    grid.innerHTML = '';
+    shop.items.forEach(it => {
+      const slot = document.createElement('div');
+      slot.className='slot'; slot.dataset.name=it.name; slot.dataset.price=it.price;
+      const imgC=document.createElement('div'); imgC.className='slot-img';
+      if(defs[it.name]?.imageUrl){ const img=new Image(); img.src=defs[it.name].imageUrl; imgC.append(img); }
+      slot.append(imgC);
+      const nameEl=document.createElement('div');
+      nameEl.className='slot-name';
+      nameEl.textContent = `${defs[it.name]?.label||it.name} — $${it.price}`;
+      slot.append(nameEl);
+      grid.append(slot);
+    });
+  }
+
+  // 10) Show/hide shop
+  window.addEventListener('message',e=>{
+    const d=e.data;
+    if(d.action==='showShop'){
+      isShopOpen=true;
+      document.getElementById('shop').classList.remove('hidden');
+      renderShop(d.shop);
+    } else if(d.action==='hideShop'){
+      isShopOpen=false;
+      document.getElementById('shop').classList.add('hidden');
+    }
+  });
+
+  // 11) Shop buy via delegation
+  document.getElementById('shopItems').addEventListener('click',e=>{
+    const slot=e.target.closest('.slot');
+    if(!slot||!isShopOpen) return;
+    const name=slot.dataset.name, price=slot.dataset.price;
+    fetch(`https://${RNAME}/buyItem`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ name, price })
+    }).catch(err=>console.error('[shop UI] buyItem error →',err));
+  });
+
+  // 12) Close shop on ESC
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&isShopOpen){
+      fetch(`https://${RNAME}/closeUI`,{method:'POST'})
+        .catch(err=>console.error('[shop UI] closeUI error →',err));
+    }
+  });
+
+})();
+</script>
+
+</body>
+</html>
