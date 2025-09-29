@@ -3,11 +3,12 @@ game        'gta5'
 
 author       'Azure(TheStoicBear)'
 description  'AZ-Framework NUI Inventory'
-version      '2.1.0'
+version      '1.2.0'
 
 shared_scripts {
   'shared/items.lua',
-  'shared/shops.lua'
+  'shared/shops.lua',
+  'config.lua'
 }
 
 server_scripts {

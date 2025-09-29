@@ -1,25 +1,19 @@
-local Items     = Items or {}        -- your Items table
-local Shops     = Shops or {}        -- defined in shops.lua
+local Items     = Items or {}
+local Shops     = Shops or {}
 
--- Inventory variables
 local worldDrops     = {}
 local open           = false
 local inventory      = {}
 local currentWeight  = 0.0
 local maxWeight      = 0.0
-local openKey        = 289 -- F2
+local openKey        = 289
 
--- State for shop UI
 local isShopOpen   = false
 local currentShop  = nil
 
--- Blip storage
 local shopBlips = {}
-
-
 local spawnedPeds = {}
 
--- helper: load model
 local function LoadModel(hash)
   if not HasModelLoaded(hash) then
     RequestModel(hash)
@@ -27,10 +21,8 @@ local function LoadModel(hash)
   end
 end
 
--- spawn configured shop peds & blips on resource start
 Citizen.CreateThread(function()
   for _, shop in ipairs(Shops) do
-    -- spawn ped if defined
     if shop.ped then
       local m = shop.ped.model
       local hash = type(m) == "string" and GetHashKey(m) or m
@@ -42,8 +34,6 @@ Citizen.CreateThread(function()
       if shop.ped.blockEvents then SetBlockingOfNonTemporaryEvents(ped, true) end
       spawnedPeds[#spawnedPeds+1] = ped
     end
-
-    -- add blip if defined
     if shop.blip then
       local b = shop.blip
       local blip = AddBlipForCoord(shop.coords.x, shop.coords.y, shop.coords.z)
@@ -62,7 +52,6 @@ Citizen.CreateThread(function()
   end
 end)
 
--- cleanup on resource stop
 AddEventHandler('onResourceStop', function(resName)
   if resName == GetCurrentResourceName() then
     for _, ped in ipairs(spawnedPeds) do
@@ -74,58 +63,36 @@ AddEventHandler('onResourceStop', function(resName)
   end
 end)
 
-Citizen.CreateThread(function()
-  while true do
-    Wait(0)
-    local playerPed = PlayerPedId()
-    local pos       = GetEntityCoords(playerPed)
-    local foundAny  = false
+local function shallowCopy(t)
+  if not t then return nil end
+  local copy = {}
+  for k,v in pairs(t) do copy[k] = v end
+  return copy
+end
 
-    for _, shop in ipairs(Shops) do
-      local dist = #(pos - shop.coords)
-      if dist < shop.radius then
-        DrawMarker(2, shop.coords.x, shop.coords.y, shop.coords.z + 0.3,
-                   0,0,0, 0,0,0, 0.4,0.4,0.4, 0,255,100,100, false, true)
-        foundAny = true
-
-        if not isShopOpen and IsControlJustReleased(0, 38) then -- E key
-          currentShop = shop
-          SendNUIMessage({ action = 'showShop', shop = shop })
-          SetNuiFocus(true, true)
-          isShopOpen = true
-        end
+local function enrichShopForUI(shop)
+  if not shop then return shop end
+  local copy = shallowCopy(shop)
+  if shop.items and type(shop.items) == "table" then
+    copy.items = {}
+    for i, it in ipairs(shop.items) do
+      local itcopy = shallowCopy(it)
+      local key = it.name or it.item or it[1]
+      if key and Items and Items[key] then
+        local def = Items[key]
+        itcopy.imageUrl = itcopy.imageUrl or def.imageUrl or def.image
+        itcopy.image    = itcopy.image or def.image
+        itcopy.label    = itcopy.label or def.label
+        itcopy._defAvailable = true
+      else
+        itcopy._defAvailable = false
+        print(("[SHOP DEBUG] missing item definition for shop entry #%d: key=%s"):format(i, tostring(key)))
       end
-    end
-
-    if isShopOpen and not foundAny then
-      SendNUIMessage({ action = 'hideShop' })
-      SetNuiFocus(false, false)
-      isShopOpen  = false
-      currentShop = nil
+      copy.items[#copy.items+1] = itcopy
     end
   end
-end)
-
--- NUI callback: buyItem
-RegisterNUICallback('buyItem', function(data, cb)
-  print('🟢 [shop] NUI → buyItem:' , data.name, data.price)
-  TriggerServerEvent('shop:buyItem', data.name, data.price)
-  -- immediately refresh inventory after purchase
-  TriggerServerEvent('inventory:refreshRequest')
-  SetNuiFocus(false, false)
-  SendNUIMessage({ action = 'hideShop' })
-  isShopOpen = false
-  cb({ success = true })
-end)
-
--- NUI callback: closeUI
-RegisterNUICallback('closeUI', function(_, cb)
-  SendNUIMessage({ action = 'hideShop' })
-  SetNuiFocus(false, false)
-  isShopOpen  = false
-  currentShop = nil
-  cb({})
-end)
+  return copy
+end
 
 local function buildDefs()
   local safe = {}
@@ -200,12 +167,29 @@ local function performUse(def)
   if prop and DoesEntityExist(prop) then DeleteObject(prop) end
 end
 
+RegisterNUICallback('buyItem', function(data, cb)
+  print(('🟢 [shop] NUI → buyItem:' ), data.name, data.price)
+  TriggerServerEvent('shop:buyItem', data.name, data.price)
+  TriggerServerEvent('inventory:refreshRequest')
+  SetNuiFocus(false, false)
+  SendNUIMessage({ action = 'hideShop' })
+  isShopOpen = false
+  cb({ success = true })
+end)
+
+RegisterNUICallback('closeUI', function(_, cb)
+  SendNUIMessage({ action = 'hideShop' })
+  SetNuiFocus(false, false)
+  isShopOpen  = false
+  currentShop = nil
+  cb({})
+end)
+
 RegisterNUICallback('useItem', function(data, cb)
   local def = Items[data.item]
   if def then
     performUse(def)
     TriggerServerEvent('inventory:useItem', data.item, def.consume or 1)
-    -- immediately refresh inventory after use
     TriggerServerEvent('inventory:refreshRequest')
     if def.server and def.server.export then
       TriggerServerEvent(def.server.export, data.item)
@@ -228,19 +212,23 @@ RegisterNUICallback('useItem', function(data, cb)
 end)
 
 RegisterNUICallback('dropItem', function(data, cb)
-  print("🟡 [CLIENT] dropItem NUI callback fired! data=", data.item)
+  print("🟡 [CLIENT] dropItem NUI callback fired! data=", data and data.item)
   if not data.item then
     return cb('ok')
   end
-
+  local qty = tonumber(data.qty) or 1
   local ped = PlayerPedId()
   local x,y,z = table.unpack(GetEntityCoords(ped))
-  print(("🟡 [CLIENT] sending dropItem → %s at %.2f, %.2f, %.2f")
-        :format(data.item, x, y, z))
-
-  TriggerServerEvent('inventory:dropItem', data.item, x, y, z)
-  -- immediately refresh inventory after drop
-  TriggerServerEvent('inventory:refreshRequest')
+  print(("🟡 [CLIENT] sending dropItem → %s x%d at %.2f, %.2f, %.2f")
+        :format(data.item, qty, x, y, z))
+  TriggerServerEvent('inventory:dropItem', data.item, x, y, z, qty)
+  if inventory[data.item] then
+    inventory[data.item] = inventory[data.item] - qty
+    if inventory[data.item] <= 0 then
+      inventory[data.item] = nil
+    end
+    pushUI('updateItems')
+  end
   cb('ok')
 end)
 
@@ -275,6 +263,41 @@ AddEventHandler('inventory:refresh', function(inv, w, mw)
 end)
 
 Citizen.CreateThread(function()
+    while true do
+        Wait(0)
+        local playerPed = PlayerPedId()
+        local pos       = GetEntityCoords(playerPed)
+        local foundAny  = false
+        for _, shop in ipairs(Shops) do
+            local dist = #(pos - shop.coords)
+            if dist < shop.radius then
+                DrawMarker(2, shop.coords.x, shop.coords.y, shop.coords.z + 0.3,
+                           0,0,0, 0,0,0, 0.4,0.4,0.4, 0,255,100,100, false, true)
+                foundAny = true
+                if not isShopOpen and IsControlJustReleased(0, 38) then
+                    currentShop = shop
+                    local enriched = enrichShopForUI(shop)
+                    SendNUIMessage({
+                      action = 'showShop',
+                      shop   = enriched,
+                      defs   = buildDefs(),
+                    })
+                    print(("[SHOP DEBUG] Opening shop '%s' with %d items"):format(tostring(shop.name or "unknown"), (shop.items and #shop.items or 0)))
+                    SetNuiFocus(true, true)
+                    isShopOpen = true
+                end
+            end
+        end
+        if isShopOpen and not foundAny then
+            SendNUIMessage({ action = 'hideShop' })
+            SetNuiFocus(false, false)
+            isShopOpen  = false
+            currentShop = nil
+        end
+    end
+end)
+
+Citizen.CreateThread(function()
   while true do
     Wait(0)
     if IsControlJustPressed(0, openKey) then
@@ -290,34 +313,27 @@ Citizen.CreateThread(function()
   end
 end)
 
--- Spawn world drop on client
 RegisterNetEvent('inventory:spawnDrop')
 AddEventHandler('inventory:spawnDrop', function(drop)
   local x,y,z = drop.coords.x, drop.coords.y, drop.coords.z
   local modelName = 'prop_med_bag_01b'
   local modelHash = GetHashKey(modelName)
-
   RequestModel(modelHash)
   while not HasModelLoaded(modelHash) do Wait(10) end
-
   local obj = CreateObject(modelHash, x, y, z + 1.0, true, true, false)
   if not DoesEntityExist(obj) then
     print("[inventory] ERROR: CreateObject failed")
     return
   end
-
   NetworkRegisterEntityAsNetworked(obj)
   local netId = ObjToNet(obj)
   print("[inventory] spawned bag network ID →", netId)
-
   PlaceObjectOnGroundProperly(obj)
   local fx,fy,fz = table.unpack(GetEntityCoords(obj))
   print(("[inventory] final object coords → %.2f, %.2f, %.2f"):format(fx,fy,fz))
-
   worldDrops[drop.id] = netId
 end)
 
--- Remove world drop on client
 RegisterNetEvent('inventory:removeDrop')
 AddEventHandler('inventory:removeDrop', function(dropId)
   local netId = worldDrops[dropId]
@@ -330,40 +346,38 @@ AddEventHandler('inventory:removeDrop', function(dropId)
   end
 end)
 
--- Pickup loop
 Citizen.CreateThread(function()
-  while true do
-    Wait(100)
-    local ped = PlayerPedId()
-    local pcoords = GetEntityCoords(ped)
-    for dropId, netId in pairs(worldDrops) do
-      local obj = NetToObj(netId)
-      if DoesEntityExist(obj) then
-        local coords = GetEntityCoords(obj)
-        if #(pcoords - coords) < 1.5 then
-          DrawText3D(coords.x,coords.y,coords.z+0.3,'[~g~E~w~] Pick up')
-          if IsControlJustReleased(0,38) then
-            TriggerServerEvent('inventory:pickupDrop', dropId)
-            -- immediately refresh inventory after pickup
-            TriggerServerEvent('inventory:refreshRequest')
-          end
+    while true do
+        Wait(0)
+        local ped = PlayerPedId()
+        local pcoords = GetEntityCoords(ped)
+        for dropId, netId in pairs(worldDrops) do
+            local obj = NetToObj(netId)
+            if DoesEntityExist(obj) then
+                local coords = GetEntityCoords(obj)
+                if #(pcoords - coords) < 1.5 then
+                    DrawText3D(coords.x, coords.y, coords.z + 0.3, '[~g~E~w~] Pick up')
+                    if IsControlJustReleased(0, 38) then
+                        TriggerServerEvent('inventory:pickupDrop', dropId)
+                        TriggerServerEvent('inventory:refreshRequest')
+                    end
+                end
+            end
         end
-      end
     end
-  end
 end)
 
-function DrawText3D(x,y,z,text)
-  SetTextScale(0.35,0.35)
-  SetTextFont(4)
-  SetTextProportional(1)
-  SetTextColour(255,255,255,215)
-  SetTextEntry('STRING')
-  SetTextCentre(true)
-  AddTextComponentString(text)
-  SetDrawOrigin(x,y,z,0)
-  DrawText(0.0,0.0)
-  ClearDrawOrigin()
+function DrawText3D(x, y, z, text)
+    SetTextScale(0.35, 0.35)
+    SetTextFont(4)
+    SetTextProportional(1)
+    SetTextColour(255, 255, 255, 215)
+    SetTextCentre(true)
+    SetTextEntry('STRING')
+    AddTextComponentString(text)
+    SetDrawOrigin(x, y, z, 0)
+    DrawText(0.0, 0.0)
+    ClearDrawOrigin()
 end
 
 AddEventHandler('onClientResourceStart', function(res)
@@ -374,10 +388,7 @@ end)
 
 RegisterNetEvent("inventory:refresh")
 AddEventHandler("inventory:refresh", function(inv, weight, maxWeight)
-
   SendNUIMessage({ action = "clearInventory" })
-
-  -- add each item from the DB snapshot
   for itemKey, count in pairs(inv) do
     SendNUIMessage({
       action = "addItem",
@@ -385,7 +396,6 @@ AddEventHandler("inventory:refresh", function(inv, weight, maxWeight)
       count   = count
     })
   end
-
   SendNUIMessage({
     action    = "updateWeight",
     weight    = weight,
@@ -395,9 +405,8 @@ end)
 
 RegisterNUICallback('requestDiscord', function(data, cb)
   TriggerServerEvent('adminmenu:requestDiscordServer', tonumber(data.id))
-  cb({})  -- ack immediately
+  cb({})
 end)
-
 
 RegisterNetEvent('adminmenu:sendDiscordToClient')
 AddEventHandler('adminmenu:sendDiscordToClient', function(discordId)

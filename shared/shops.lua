@@ -1,3 +1,5 @@
+-- shops.lua
+
 -- Define your shops here. Each shop can include coords, radius, items,
 -- optional ped definition, and optional blip definition.
 Shops = {
