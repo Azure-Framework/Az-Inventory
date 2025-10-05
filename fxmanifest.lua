@@ -2,8 +2,8 @@ fx_version 'cerulean'
 game        'gta5'
 
 author       'Azure(TheStoicBear)'
-description  'AZ-Framework NUI Inventory'
-version      '1.2.0'
+description  'Az-Framework Inventory'
+version      '1.3.0'
 
 shared_scripts {
   'shared/items.lua',

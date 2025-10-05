@@ -10,9 +10,15 @@ local openKey        = 289
 
 local isShopOpen   = false
 local currentShop  = nil
+local viewingOther     = false
+local viewingOwnerId   = nil
+local viewingOwnerName = nil
 
 local shopBlips = {}
 local spawnedPeds = {}
+
+-- new: local table to track closed shops (unix timestamp seconds)
+local shopStates = {} -- shopStates[shopName] = closedUntil (os.time())
 
 local function LoadModel(hash)
   if not HasModelLoaded(hash) then
@@ -120,7 +126,8 @@ local function buildDefs()
   return safe
 end
 
-local function pushUI(action)
+local function pushUI(action, meta)
+  meta = meta or {}
   SendNUIMessage({
     action    = action,
     items     = inventory,
@@ -128,8 +135,10 @@ local function pushUI(action)
     playerId  = GetPlayerServerId(PlayerId()),
     weight    = currentWeight,
     maxWeight = maxWeight,
+    meta      = meta
   })
 end
+
 
 local function performUse(def)
   local ped = PlayerPedId()
@@ -168,6 +177,10 @@ local function performUse(def)
 end
 
 RegisterNUICallback('buyItem', function(data, cb)
+  if viewingOther then
+    ShowNotification("Cannot buy items while viewing another player's inventory.")
+    return cb({ success = false, reason = "viewing_other" })
+  end
   print(('🟢 [shop] NUI → buyItem:' ), data.name, data.price)
   TriggerServerEvent('shop:buyItem', data.name, data.price)
   TriggerServerEvent('inventory:refreshRequest')
@@ -178,14 +191,22 @@ RegisterNUICallback('buyItem', function(data, cb)
 end)
 
 RegisterNUICallback('closeUI', function(_, cb)
-  SendNUIMessage({ action = 'hideShop' })
+  pushUI('hide')
   SetNuiFocus(false, false)
-  isShopOpen  = false
+  open = false
+
+  -- reset viewing-other state
+  viewingOther     = false
+  viewingOwnerId   = nil
+  viewingOwnerName = nil
   currentShop = nil
   cb({})
 end)
-
 RegisterNUICallback('useItem', function(data, cb)
+  if viewingOther then
+    ShowNotification("Cannot use items while viewing another player's inventory.")
+    return cb('ok')
+  end
   local def = Items[data.item]
   if def then
     performUse(def)
@@ -212,6 +233,10 @@ RegisterNUICallback('useItem', function(data, cb)
 end)
 
 RegisterNUICallback('dropItem', function(data, cb)
+  if viewingOther then
+    ShowNotification("Cannot drop items while viewing another player's inventory.")
+    return cb('ok')
+  end
   print("🟡 [CLIENT] dropItem NUI callback fired! data=", data and data.item)
   if not data.item then
     return cb('ok')
@@ -249,6 +274,11 @@ RegisterNUICallback('close', function(_, cb)
   pushUI('hide')
   SetNuiFocus(false,false)
   open = false
+
+  viewingOther     = false
+  viewingOwnerId   = nil
+  viewingOwnerName = nil
+
   cb('ok')
 end)
 
@@ -262,6 +292,13 @@ AddEventHandler('inventory:refresh', function(inv, w, mw)
   end
 end)
 
+-- helper: show notification (works without ESX)
+local function ShowNotification(text)
+  SetNotificationTextEntry("STRING")
+  AddTextComponentString(text)
+  DrawNotification(false, false)
+end
+
 Citizen.CreateThread(function()
     while true do
         Wait(0)
@@ -271,30 +308,120 @@ Citizen.CreateThread(function()
         for _, shop in ipairs(Shops) do
             local dist = #(pos - shop.coords)
             if dist < shop.radius then
-                DrawMarker(2, shop.coords.x, shop.coords.y, shop.coords.z + 0.3,
-                           0,0,0, 0,0,0, 0.4,0.4,0.4, 0,255,100,100, false, true)
+                -- if shop is closed, draw different color and message
+                local closedUntil = shopStates[shop.name]
+                if closedUntil and closedUntil > os.time() then
+                  DrawMarker(2, shop.coords.x, shop.coords.y, shop.coords.z + 0.3,
+                             0,0,0, 0,0,0, 0.4,0.4,0.4, 255,50,50,100, false, true)
+                  local remaining = closedUntil - os.time()
+                  local mins = math.floor(remaining / 60)
+                  local secs = remaining % 60
+                  -- cooldown text
+                  DrawText3D(shop.coords.x, shop.coords.y, shop.coords.z + 0.6, ('~r~Closed (robbed) - %02dm %02ds'):format(mins, secs))
+                  -- also show an input hint but disabled
+                  DrawText3D(shop.coords.x, shop.coords.y, shop.coords.z + 0.95, ('~w~(Reopens in %02dm %02ds)'):format(mins, secs))
+                else
+                  DrawMarker(2, shop.coords.x, shop.coords.y, shop.coords.z + 0.3,
+                             0,0,0, 0,0,0, 0.4,0.4,0.4, 0,255,100,100, false, true)
+                  -- Show both action hints: Press E to open, Press H to ROB
+                  DrawText3D(shop.coords.x, shop.coords.y, shop.coords.z + 0.6, ('[~g~E~w~] Open Shop    [~r~H~w~] Rob Shop'))
+                end
+
                 foundAny = true
+
                 if not isShopOpen and IsControlJustReleased(0, 38) then
-                    currentShop = shop
-                    local enriched = enrichShopForUI(shop)
-                    SendNUIMessage({
-                      action = 'showShop',
-                      shop   = enriched,
-                      defs   = buildDefs(),
-                    })
-                    print(("[SHOP DEBUG] Opening shop '%s' with %d items"):format(tostring(shop.name or "unknown"), (shop.items and #shop.items or 0)))
-                    SetNuiFocus(true, true)
-                    isShopOpen = true
+                    -- try to open: check closed state first
+                    local closedUntil = shopStates[shop.name]
+                    if closedUntil and closedUntil > os.time() then
+                      local remaining = closedUntil - os.time()
+                      local mins = math.floor(remaining / 60)
+                      local secs = remaining % 60
+                      ShowNotification(('This shop is closed due to a recent robbery. Reopens in %dm %ds'):format(mins, secs))
+                    else
+                      -- ensure inventory UI is closed to avoid focus conflicts
+                      if open then
+                        pushUI('hide')
+                        SetNuiFocus(false, false)
+                        open = false
+                        viewingOther     = false
+                        viewingOwnerId   = nil
+                        viewingOwnerName = nil
+                      end
+
+                      currentShop = shop
+                      local enriched = enrichShopForUI(shop)
+                      SendNUIMessage({
+                        action = 'showShop',
+                        shop   = enriched,
+                        defs   = buildDefs(),
+                      })
+                      print(("[SHOP DEBUG] Opening shop '%s' with %d items"):format(tostring(shop.name or "unknown"), (shop.items and #shop.items or 0)))
+                      SetNuiFocus(true, true)
+                      isShopOpen = true
+                    end
+                end
+
+                -- attempt robbery with H (simple press)
+                if IsControlJustReleased(0, 74) then -- 74 = H
+                  local closedUntil = shopStates[shop.name]
+                  if closedUntil and closedUntil > os.time() then
+                    -- show cooldown notification with time left
+                    local remaining = closedUntil - os.time()
+                    local mins = math.floor(remaining / 60)
+                    local secs = remaining % 60
+                    ShowNotification(('Shop is closed. Reopens in %dm %02ds'):format(mins, secs))
+                  else
+                    -- ask server to attempt robbery (server should validate)
+                    TriggerServerEvent('shop:attemptRob', shop.name)
+                  end
                 end
             end
         end
         if isShopOpen and not foundAny then
             SendNUIMessage({ action = 'hideShop' })
+            -- if inventory somehow stayed open, hide it too
+            if open then
+              pushUI('hide')
+              open = false
+              viewingOther     = false
+              viewingOwnerId   = nil
+              viewingOwnerName = nil
+            end
             SetNuiFocus(false, false)
             isShopOpen  = false
             currentShop = nil
         end
     end
+end)
+
+Citizen.CreateThread(function()
+  while true do
+    Wait(0)
+    -- Only check while either UI is logically open
+    if isShopOpen or open then
+      -- watch both common ESC control codes: 322 and 200
+      if IsControlJustReleased(0, 322) or IsControlJustReleased(0, 200) then
+        -- Close shop if open
+        if isShopOpen then
+          SendNUIMessage({ action = 'hideShop' })
+          isShopOpen = false
+          currentShop = nil
+        end
+
+        -- Close inventory if open
+        if open then
+          pushUI('hide')
+          viewingOther     = false
+          viewingOwnerId   = nil
+          viewingOwnerName = nil
+          open = false
+        end
+
+        -- Remove focus (important)
+        SetNuiFocus(false, false)
+      end
+    end
+  end
 end)
 
 Citizen.CreateThread(function()
@@ -367,17 +494,19 @@ Citizen.CreateThread(function()
     end
 end)
 
-function DrawText3D(x, y, z, text)
-    SetTextScale(0.35, 0.35)
-    SetTextFont(4)
-    SetTextProportional(1)
-    SetTextColour(255, 255, 255, 215)
-    SetTextCentre(true)
-    SetTextEntry('STRING')
-    AddTextComponentString(text)
-    SetDrawOrigin(x, y, z, 0)
-    DrawText(0.0, 0.0)
-    ClearDrawOrigin()
+-- DrawText3D now accepts an optional 'scale' param (default 0.35)
+function DrawText3D(x, y, z, text, scale)
+  scale = scale or 0.35
+  SetTextScale(scale, scale)
+  SetTextFont(4)
+  SetTextProportional(1)
+  SetTextColour(255, 255, 255, 215)
+  SetTextCentre(true)
+  SetTextEntry('STRING')
+  AddTextComponentString(text)
+  SetDrawOrigin(x, y, z, 0)
+  DrawText(0.0, 0.0)
+  ClearDrawOrigin()
 end
 
 AddEventHandler('onClientResourceStart', function(res)
@@ -386,32 +515,70 @@ AddEventHandler('onClientResourceStart', function(res)
   end
 end)
 
-RegisterNetEvent("inventory:refresh")
-AddEventHandler("inventory:refresh", function(inv, weight, maxWeight)
-  SendNUIMessage({ action = "clearInventory" })
-  for itemKey, count in pairs(inv) do
-    SendNUIMessage({
-      action = "addItem",
-      item    = itemKey,
-      count   = count
-    })
+RegisterNetEvent('inventory:openOther')
+AddEventHandler('inventory:openOther', function(inv, weight, mw, ownerServerId, ownerName)
+  inventory     = inv or {}
+  currentWeight = weight or 0.0
+  maxWeight     = mw or maxWeight
+
+  viewingOther     = true
+  viewingOwnerId   = tonumber(ownerServerId) or nil
+  viewingOwnerName = tostring((ownerName and ownerName ~= "") and ownerName or ("ID "..tostring(ownerServerId)))
+
+  open = true
+  pushUI('show', { ownerId = viewingOwnerId, ownerName = viewingOwnerName, viewingOther = true })
+  SetNuiFocus(true, true)
+
+  -- small on-screen feedback
+  ShowNotification(("Viewing inventory of %s"):format(viewingOwnerName))
+end)
+
+RegisterNetEvent('inventory:openSelf')
+AddEventHandler('inventory:openSelf', function(inv, weight, mw)
+  inventory     = inv or {}
+  currentWeight = weight or 0.0
+  maxWeight     = mw or maxWeight
+
+  viewingOther     = false
+  viewingOwnerId   = nil
+  viewingOwnerName = nil
+
+  open = true
+  pushUI('show', { viewingOther = false })
+  SetNuiFocus(true, true)
+
+  ShowNotification("Inventory opened")
+end)
+
+RegisterCommand("openinv", function(_, args)
+  local tgt = tonumber(args[1])
+  local me = GetPlayerServerId(PlayerId())
+  if not tgt then
+    -- no args: toggle your own inventory
+    open = not open
+    SetNuiFocus(open, open)
+    if open then
+      pushUI('show')
+      TriggerServerEvent('inventory:refreshRequest')
+    else
+      pushUI('hide')
+    end
+    return
   end
-  SendNUIMessage({
-    action    = "updateWeight",
-    weight    = weight,
-    maxWeight = maxWeight
-  })
-end)
 
-RegisterNUICallback('requestDiscord', function(data, cb)
-  TriggerServerEvent('adminmenu:requestDiscordServer', tonumber(data.id))
-  cb({})
-end)
+  if tgt == me then
+    -- same as toggling own openKey
+    open = not open
+    SetNuiFocus(open, open)
+    if open then
+      pushUI('show')
+      TriggerServerEvent('inventory:refreshRequest')
+    else
+      pushUI('hide')
+    end
+    return
+  end
 
-RegisterNetEvent('adminmenu:sendDiscordToClient')
-AddEventHandler('adminmenu:sendDiscordToClient', function(discordId)
-  SendNUIMessage({
-    action    = 'receiveDiscord',
-    discordId = discordId
-  })
-end)
+  -- request other player's inventory (server will check perms)
+  TriggerServerEvent('inventory:requestOpenOther', tgt)
+end, false)
