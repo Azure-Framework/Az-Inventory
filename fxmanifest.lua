@@ -1,9 +1,9 @@
 fx_version 'cerulean'
 game        'gta5'
 
-author       'Azure(TheStoicBear)'
-description  'Az-Framework Inventory'
-version      '1.3.0'
+author       'YourName'
+description  'AZ-Framework NUI Inventory'
+version      '1.5.0'
 
 shared_scripts {
   'shared/items.lua',
@@ -12,7 +12,7 @@ shared_scripts {
 }
 
 server_scripts {
-  '@mysql-async/lib/MySQL.lua',
+  '@mysql-async/lib/MySQL.lua',  -- if you want to persist
   'server/main.lua'
 }
 

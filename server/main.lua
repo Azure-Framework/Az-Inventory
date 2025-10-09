@@ -35,6 +35,7 @@ local Config = Config or (function()
   }
 end)()
 
+-- Notify helper using ox_lib:notify (falls back to chat message if ox_lib missing)
 local function notify(src, message, opts)
   if not src or not message then return end
   opts = opts or {}
@@ -75,6 +76,7 @@ local function notify(src, message, opts)
   end
 end
 
+-- Helper: extract Discord ID from identifiers
 local function getDiscordFromIdentifiers(src)
   local ids = GetPlayerIdentifiers(src) or {}
   for _, id in ipairs(ids) do
@@ -89,6 +91,7 @@ local function getDiscordFromIdentifiers(src)
   return ""
 end
 
+-- Synchronous helper: get keys (discord from identifiers, char from Az-Framework or ActiveCharID)
 local function getPlayerKeysSync(src)
   local discordID = getDiscordFromIdentifiers(src) or ""
   local charID    = ""
@@ -723,6 +726,7 @@ AddEventHandler('shop:attemptRob', function(shopName)
   else
     notify(src, ("Robbery successful! You received $%d."):format(reward), { type = "success", title = "Shop" })
   end
+
   -- Schedule reopen cleanup
   Citizen.CreateThread(function()
     Citizen.Wait((cooldown * 1000) + 500)
@@ -795,6 +799,12 @@ AddEventHandler('Az-Framework:selectCharacter', function(charID)
   sendInv(src)
 end)
 
+-- Exports (optional helpers other resources may call)
+exports('GetPlayerInventory', function(src)
+  src = tonumber(src) or source
+  return ensureInv(src)
+end)
+
 -- On resource start: broadcast current shop states to clients (so new clients are aware)
 AddEventHandler('onResourceStart', function(resourceName)
   if resourceName == GetCurrentResourceName() then
@@ -844,6 +854,17 @@ local function openPlayerInventory(requester, target)
   return true
 end
 
+-- server export (callable from other server scripts)
+exports('OpenPlayerInventory', function(requester, target)
+  -- if called without args from server context, return false
+  local ok, err = pcall(function() return openPlayerInventory(requester, target) end)
+  if not ok then
+    print(("[inventory] exports.OpenPlayerInventory pcall failed: %s"):format(tostring(err)))
+    return false, tostring(err)
+  end
+  return true
+end)
+
 RegisterServerEvent('inventory:requestOpenOther')
 AddEventHandler('inventory:requestOpenOther', function(targetId)
   local src = source
@@ -878,19 +899,4 @@ AddEventHandler('inventory:requestOpenOther', function(targetId)
   if not ok then
     notify(src, ("Failed to open inventory: %s"):format(tostring(res)), { type = "error", title = "Inventory" })
   end
-end)
-
-exports('GetPlayerInventory', function(src)
-  src = tonumber(src) or source
-  return ensureInv(src)
-end)
-
-exports('OpenPlayerInventory', function(requester, target)
-  -- if called without args from server context, return false
-  local ok, err = pcall(function() return openPlayerInventory(requester, target) end)
-  if not ok then
-    print(("[inventory] exports.OpenPlayerInventory pcall failed: %s"):format(tostring(err)))
-    return false, tostring(err)
-  end
-  return true
 end)

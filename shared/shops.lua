@@ -1,9 +1,5 @@
--- shops.lua
--- Define your shops here. Each shop can include coords, radius, items,
--- optional ped definition, and optional blip definition.
-
 Shops = {
-  {
+  { --General Store
     name   = "General Store",
     coords = vector3(-47.4, -1757.2, 29.4),
     radius = 2.0,
@@ -26,8 +22,7 @@ Shops = {
       text   = "General Store"
     }
   },
-
-  {
+  { --Tool Shop
     name   = "Tool Shop",
     coords = vector3(2747.7, 3472.0, 55.6),
     radius = 2.0,
@@ -49,8 +44,7 @@ Shops = {
       text   = "Tool Shop"
     }
   },
-
-  {
+  { --Pharmacy
     name   = "Pharmacy",
     coords = vector3(196.38, -933.56, 30.69),
     radius = 1.5,
@@ -72,8 +66,7 @@ Shops = {
       text   = "Pharmacy"
     }
   },
-
-  {
+  { -- Weapon Dealer
     name   = "Weapon Dealer",
     coords = vector3(-662.1, -935.3, 21.8),
     radius = 2.0,
@@ -89,9 +82,7 @@ Shops = {
       text   = "Weapon Dealer"
     }
   },
-
-  -- Police Armory: only accessible to police/sheriff jobs
-  {
+  { -- Police Armory
     name   = "Police Armory",
     coords = vector3(454.2, -990.1, 30.6),
     radius = 2.0,
@@ -110,9 +101,7 @@ Shops = {
       sprite = 60, color = 38, scale = 0.9, text = "Police Armory"
     }
   },
-
-  -- Mechanic tools: specific items restricted to mechanics, spark_plug available to all
-  {
+  { -- Mechanic Tools
     name   = "Mechanic Tools",
     coords = vector3(-338.1, -137.6, 38.0),
     radius = 2.0,
@@ -126,5 +115,5 @@ Shops = {
     blip = {
       sprite = 446, color = 47, scale = 0.8, text = "Mechanic Tools"
     }
-  },
+  }
 }

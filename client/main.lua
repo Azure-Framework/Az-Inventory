@@ -394,6 +394,7 @@ Citizen.CreateThread(function()
     end
 end)
 
+-- NEW THREAD: handle ESC / BACK (control 322 or 200) to close shop/inventory reliably
 Citizen.CreateThread(function()
   while true do
     Wait(0)
@@ -515,6 +516,8 @@ AddEventHandler('onClientResourceStart', function(res)
   end
 end)
 
+-- keep the pushUI-based refresh handler above; removed the direct NUI add/clear duplicate
+-- client: show another player's inventory in NUI
 RegisterNetEvent('inventory:openOther')
 AddEventHandler('inventory:openOther', function(inv, weight, mw, ownerServerId, ownerName)
   inventory     = inv or {}
