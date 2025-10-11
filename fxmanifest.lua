@@ -3,7 +3,7 @@ game        'gta5'
 
 author       'YourName'
 description  'AZ-Framework NUI Inventory'
-version      '1.0.0'
+version      '1.4.0'
 
 shared_scripts {
   '@ox_lib/init.lua',
@@ -31,3 +31,4 @@ files {
   'html/app.js',
   'html/img/*.png'
 }
+
