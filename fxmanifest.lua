@@ -3,13 +3,15 @@ game        'gta5'
 
 author       'YourName'
 description  'AZ-Framework NUI Inventory'
-version      '1.5.0'
+version      '1.0.0'
 
 shared_scripts {
+  '@ox_lib/init.lua',
   'shared/items.lua',
   'shared/shops.lua',
   'config.lua'
 }
+
 
 server_scripts {
   '@mysql-async/lib/MySQL.lua',  -- if you want to persist
@@ -17,7 +19,8 @@ server_scripts {
 }
 
 client_scripts {
-  'client/main.lua'
+  'client/main.lua',
+  'shared/items_examples.lua'
 }
 
 ui_page 'html/index.html'

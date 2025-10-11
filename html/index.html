@@ -279,6 +279,7 @@
 
   // 2) State
   let inventory = {}, defs = {}, currentSlot = null, currentCat = 'all';
+  // Note: we intentionally use DOM visibility checks instead of JS bools for robustness.
   let isShopOpen = false;
 
   // 3) Render inventory slots
@@ -415,13 +416,13 @@
     ctx.style.top=`${y}px`; ctx.style.left=`${x}px`; ctx.style.display='block';
   }
   function hideCtx(){
-    document.getElementById('ctxMenu').style.display='none';
+    const ctx=document.getElementById('ctxMenu');
+    ctx.style.display='none';
     currentSlot=null;
   }
 
   // 8) Inventory close handlers
   document.getElementById('closeBtn').addEventListener('click',()=>fetch(`https://${RNAME}/close`,{method:'POST'}));
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape') fetch(`https://${RNAME}/close`,{method:'POST'}); });
 
   // 9) Shop rendering (unchanged)
   function renderShop(shop) {
@@ -442,23 +443,23 @@
     });
   }
 
-  // 10) Show/hide shop
+  // 10) Show/hide shop (listen for messages)
   window.addEventListener('message',e=>{
     const d=e.data;
     if(d.action==='showShop'){
-      isShopOpen=true;
       document.getElementById('shop').classList.remove('hidden');
       renderShop(d.shop);
+      isShopOpen = true;
     } else if(d.action==='hideShop'){
-      isShopOpen=false;
       document.getElementById('shop').classList.add('hidden');
+      isShopOpen = false;
     }
   });
 
   // 11) Shop buy via delegation
   document.getElementById('shopItems').addEventListener('click',e=>{
     const slot=e.target.closest('.slot');
-    if(!slot||!isShopOpen) return;
+    if(!slot) return;
     const name=slot.dataset.name, price=slot.dataset.price;
     fetch(`https://${RNAME}/buyItem`,{
       method:'POST',
@@ -467,11 +468,26 @@
     }).catch(err=>console.error('[shop UI] buyItem error →',err));
   });
 
-  // 12) Close shop on ESC
-  document.addEventListener('keydown',e=>{
-    if(e.key==='Escape'&&isShopOpen){
-      fetch(`https://${RNAME}/closeUI`,{method:'POST'})
-        .catch(err=>console.error('[shop UI] closeUI error →',err));
+  // 12) Single, robust ESC handler: check DOM visibility and send correct callback.
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' || e.key === 'Esc') {
+      // prevent the game/DOM from doing anything else while we handle it
+      try { e.preventDefault(); e.stopPropagation(); } catch(_) {}
+      const shopEl = document.getElementById('shop');
+      const invEl  = document.getElementById('inventory');
+      const shopVisible = shopEl && !shopEl.classList.contains('hidden');
+      const invVisible  = invEl  && !invEl.classList.contains('hidden');
+
+      if (shopVisible) {
+        // close shop first if visible
+        fetch(`https://${RNAME}/closeUI`, { method: 'POST' }).catch(err=>console.error('[shop UI] closeUI error →',err));
+      } else if (invVisible) {
+        // close inventory
+        fetch(`https://${RNAME}/close`, { method: 'POST' }).catch(err=>console.error('[inv UI] close error →',err));
+      } else {
+        // nothing open: hide context menu
+        hideCtx();
+      }
     }
   });
 
