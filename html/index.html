@@ -11,9 +11,8 @@
       user-select:none;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
-    .hidden {
-      display: none !important;
-    }
+    .hidden { display: none !important; }
+
     #inventory {
       position:absolute; top:50%; left:50%;
       transform:translate(-50%,-50%);
@@ -24,6 +23,7 @@
       display:flex; flex-direction:column;
     }
     #inventory.hidden { display:none; }
+
     .inventory-header {
       display:flex; justify-content:space-between; align-items:center;
       padding:18px 24px;
@@ -44,6 +44,7 @@
     }
     .info-box i { color:#6a7bff; font-size:1.1rem; }
     .info-value { font-weight:600; color:#e0e4f0; }
+
     .inventory-content { flex:1; display:flex; }
     .categories {
       width:140px; background:rgba(25,28,35,0.9);
@@ -56,19 +57,19 @@
       cursor:pointer; position:relative; transition:all .2s;
     }
     .category:hover { background:rgba(45,50,65,0.5); color:#d0d8f0; }
-    .category.active {
-      background:rgba(55,60,80,0.7); color:#fff;
-    }
+    .category.active { background:rgba(55,60,80,0.7); color:#fff; }
     .category.active::before {
       content:''; position:absolute; left:0; top:0;
       height:100%; width:4px; background:#6a7bff; border-radius:0 3px 3px 0;
     }
     .category i { font-size:1.1rem; width:20px; text-align:center; }
+
     .items-grid {
       flex:1; padding:20px; overflow-y:auto;
       display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr));
       grid-gap:15px;
     }
+
     .slot {
       background:rgba(35,40,50,0.7);
       border:1px solid rgba(70,75,90,0.4);
@@ -87,9 +88,8 @@
       width:50px; height:50px; margin-bottom:8px;
       display:flex; align-items:center; justify-content:center;
     }
-    .slot-img img {
-      max-width:90%; max-height:90%; object-fit:contain;
-    }
+    .slot-img img { max-width:90%; max-height:90%; object-fit:contain; }
+
     .slot-fallback {
       width:40px; height:40px; border-radius:50%;
       background:rgba(90,100,150,0.2);
@@ -108,6 +108,7 @@
       color:#fff; font-size:0.8rem; font-weight:600;
       min-width:26px; text-align:center;
     }
+
     .inventory-footer {
       display:flex; justify-content:space-between; align-items:center;
       padding:15px 24px;
@@ -116,6 +117,7 @@
     }
     .instructions { color:#9098b0; font-size:0.85rem; }
     .action-buttons { display:flex; gap:12px; }
+
     .inv-btn {
       display:flex; align-items:center; gap:8px;
       padding:8px 18px; font-weight:500; font-size:0.95rem;
@@ -126,6 +128,7 @@
     .inv-btn:hover { background:rgba(80,90,120,0.8); }
     .btn-close { background:rgba(180,70,70,0.8); }
     .btn-close:hover { background:rgba(200,80,80,0.9); }
+
     #ctxMenu {
       position:absolute; display:none; z-index:1000;
       background:rgba(35,40,50,0.95);
@@ -138,9 +141,8 @@
       padding:12px 20px; font-size:0.95rem; color:#d0d8f0;
       cursor:pointer; transition:all .2s;
     }
-    #ctxMenu .item:hover {
-      background:rgba(65,75,105,0.8); color:#fff;
-    }
+    #ctxMenu .item:hover { background:rgba(65,75,105,0.8); color:#fff; }
+
     /* ----- SHOP UI: match inventory style ----- */
     #shop {
       position: absolute;
@@ -155,17 +157,9 @@
       box-shadow: 0 15px 30px rgba(0,0,0,0.6);
       display: flex;
       flex-direction: column;
-      z-index: 100;             /* sit above world blips/etc */
+      z-index: 100;
     }
-
-    #shop.hidden {
-      display: none !important;
-    }
-
-    #shop .inventory-header {
-      /* reuse your existing header style */
-    }
-
+    #shop.hidden { display: none !important; }
     #shop .items-grid {
       flex: 1;
       padding: 20px;
@@ -174,10 +168,12 @@
       grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
       grid-gap: 15px;
     }
+
     ::-webkit-scrollbar { width:8px; }
     ::-webkit-scrollbar-track { background:rgba(30,33,40,0.3); border-radius:4px; }
     ::-webkit-scrollbar-thumb { background:rgba(90,100,150,0.5); border-radius:4px; }
     ::-webkit-scrollbar-thumb:hover { background:rgba(106,123,255,0.7); }
+
     @font-face {
       font-family:'Font Awesome'; font-style:normal; font-weight:400;
       src:url("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/webfonts/fa-solid-900.woff2")
@@ -191,6 +187,7 @@
     .fa-search:before{content:"\f002"} .fa-filter:before{content:"\f0b0"}
     .fa-cube:before{content:"\f1b2"} .fa-share:before{content:"\f064"}
     .fa-info-circle:before{content:"\f05a"} .fa-trash:before{content:"\f1f8"}
+    .fa-shopping-cart:before{content:"\f07a"}
   </style>
 </head>
 <body>
@@ -205,7 +202,7 @@
         </div>
         <div class="info-box">
           <i class="fa fa-weight"></i>
-          <span>Weight: <span class="info-value" id="weightDisplay">0/0 kg</span></span>
+          <span>Weight: <span class="info-value" id="weightDisplay">0/0 kg</span></span>
         </div>
       </div>
     </div>
@@ -236,7 +233,7 @@
 
     <div class="inventory-footer">
       <div class="instructions">
-        Left‑click = Use • Right‑click = Options • ESC = Close
+        Left-click = Use • Right-click = Options • ESC = Close
       </div>
       <div class="action-buttons">
         <button class="inv-btn" id="searchBtn">
@@ -250,44 +247,114 @@
         </button>
       </div>
     </div>
-    
   </div>
+
   <div id="shop" class="hidden">
-  <div class="inventory-header">
-    <h2><i class="fa fa-shopping-cart"></i> SHOP</h2>
-    <div class="player-info">
-      <div class="info-box">
-        <i class="fa fa-user"></i>
-        <span>ID: <span class="info-value" id="shopName">---</span></span>
+    <div class="inventory-header">
+      <h2><i class="fa fa-shopping-cart"></i> SHOP</h2>
+      <div class="player-info">
+        <div class="info-box">
+          <i class="fa fa-user"></i>
+          <span>Name: <span class="info-value" id="shopName">---</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="items-grid" id="shopItems"></div>
+
+    <div class="inventory-footer">
+      <div class="instructions">Left-click = Buy • ESC = Close</div>
+      <div class="action-buttons">
+        <button class="inv-btn btn-close" id="shopCloseBtn">
+          <i class="fa fa-times"></i> Close
+        </button>
       </div>
     </div>
   </div>
-  <div class="items-grid" id="shopItems"></div>
-  <div class="inventory-footer">
-    <div class="instructions">Left-click = Buy • ESC = Close</div>
-  </div>
-</div>
+
   <div id="ctxMenu"></div>
 
 <script>
 (() => {
-  // 1) Utility: log the resource name
+  // Resource name
   const RNAME = typeof GetParentResourceName === 'function'
     ? GetParentResourceName()
     : 'UNKNOWN_RESOURCE';
   console.log('[UI] Resource name →', RNAME);
 
-  // 2) State
+  // State
   let inventory = {}, defs = {}, currentSlot = null, currentCat = 'all';
-  // Note: we intentionally use DOM visibility checks instead of JS bools for robustness.
-  let isShopOpen = false;
 
-  // 3) Render inventory slots
+  // Weapon image config
+  const WEAPON_BASE = 'https://docs.fivem.net/weapons/';
+
+  function isWeaponItem(itemKey, def) {
+    const k = String(itemKey || '').toLowerCase();
+    const cat = String(def?.category || '').toLowerCase();
+    return cat === 'weapons' || k.startsWith('weapon_') || !!def?.weaponName;
+  }
+
+  // Converts:
+  //  - def.weaponName "WEAPON_PISTOL" -> "WEAPON_PISTOL"
+  //  - item "weapon_pistol" -> "WEAPON_PISTOL"
+  //  - item "pistol" (only if category weapons) -> "WEAPON_PISTOL"
+  function toWeaponAssetName(itemKey, def) {
+    let w = (def?.weaponName || itemKey || '').toString().trim();
+    if (!w) return null;
+
+    if (/^WEAPON_/i.test(w)) return w.toUpperCase();
+
+    w = w.toLowerCase();
+    if (w.startsWith('weapon_')) return w.toUpperCase();
+
+    return ('WEAPON_' + w).toUpperCase();
+  }
+
+  function fallbackBubbleText(key) {
+    return String(key || '')
+      .replace(/_/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .map(w => w[0])
+      .join('')
+      .substr(0, 2)
+      .toUpperCase();
+  }
+
+  function makeFallbackBubble(text) {
+    const fb = document.createElement('div');
+    fb.className = 'slot-fallback';
+    fb.textContent = text;
+    return fb;
+  }
+
+  function trySetImage(container, primarySrc, altSrc, fallbackText) {
+    const img = new Image();
+    img.alt = fallbackText || '';
+    img.loading = 'lazy';
+    img.referrerPolicy = 'no-referrer';
+
+    img.onerror = () => {
+      if (altSrc && img.src !== altSrc) {
+        img.src = altSrc;
+        return;
+      }
+      container.innerHTML = '';
+      container.append(makeFallbackBubble(fallbackText));
+    };
+
+    img.src = primarySrc;
+    container.append(img);
+  }
+
+  // Render inventory slots
   function renderSlots() {
     const slots = document.getElementById('slots');
     slots.innerHTML = '';
+
     for (const [item, count] of Object.entries(inventory)) {
       if (count <= 0) continue;
+
       const def = defs[item] || {};
       const cat = def.category || 'misc';
       if (currentCat !== 'all' && cat !== currentCat) continue;
@@ -296,19 +363,27 @@
       slot.className = 'slot';
       slot.dataset.item = item;
 
-      // image / fallback
+      // image / fallback with weapon auto-resolution
       const imgC = document.createElement('div');
       imgC.className = 'slot-img';
+
+      const fbText = fallbackBubbleText(item);
+      const weaponAsset = isWeaponItem(item, def) ? toWeaponAssetName(item, def) : null;
+      const weaponUrl = weaponAsset ? `${WEAPON_BASE}${weaponAsset}.png` : null;
+
       if (def.imageUrl) {
-        const img = new Image(); img.src = def.imageUrl; img.alt = item; imgC.append(img);
+        // explicit imageUrl wins; fallback to docs weapon, then local def.image
+        trySetImage(imgC, def.imageUrl, weaponUrl || (def.image ? `img/${def.image}` : null), fbText);
+      } else if (weaponUrl) {
+        // weapon auto image; fallback to local def.image
+        trySetImage(imgC, weaponUrl, def.image ? `img/${def.image}` : null, fbText);
       } else if (def.image) {
-        const img = new Image(); img.src = `img/${def.image}`; img.alt = item; imgC.append(img);
+        // local image
+        trySetImage(imgC, `img/${def.image}`, null, fbText);
       } else {
-        const fb = document.createElement('div');
-        fb.className = 'slot-fallback';
-        fb.textContent = item.split(' ').map(w => w[0]).join('').substr(0,2).toUpperCase();
-        imgC.append(fb);
+        imgC.append(makeFallbackBubble(fbText));
       }
+
       slot.append(imgC);
 
       // name & count
@@ -326,169 +401,211 @@
     }
   }
 
-  // 4) NUI message handler for inventory
+  // Inventory message handler
   window.addEventListener('message', e => {
     const d = e.data;
     if (d.defs) defs = d.defs;
+
     if (d.playerId !== undefined) {
       document.getElementById('playerId').textContent = d.playerId;
     }
-    if (typeof d.weight==='number' && typeof d.maxWeight==='number') {
+    if (typeof d.weight === 'number' && typeof d.maxWeight === 'number') {
       document.getElementById('weightDisplay').textContent =
-        `${d.weight.toFixed(1)}/${d.maxWeight.toFixed(1)} kg`;
+        `${d.weight.toFixed(1)}/${d.maxWeight.toFixed(1)} kg`;
     }
-    if (d.action==='show'||d.action==='updateItems') {
-      inventory = d.items||{};
+
+    if (d.action === 'show' || d.action === 'updateItems') {
+      inventory = d.items || {};
       document.getElementById('inventory').classList.remove('hidden');
       renderSlots();
-    } else if (d.action==='hide') {
+    } else if (d.action === 'hide') {
       document.getElementById('inventory').classList.add('hidden');
       hideCtx();
     }
   });
 
-  // 5) Category switching
-  document.querySelectorAll('.category').forEach(cat=>{
-    cat.addEventListener('click',()=>{
-      document.querySelectorAll('.category').forEach(c=>c.classList.remove('active'));
-      cat.classList.add('active');
-      currentCat = cat.dataset.category;
+  // Category switching
+  document.querySelectorAll('.category').forEach(catEl => {
+    catEl.addEventListener('click', () => {
+      document.querySelectorAll('.category').forEach(c => c.classList.remove('active'));
+      catEl.classList.add('active');
+      currentCat = catEl.dataset.category;
       renderSlots();
     });
   });
 
-  // 6) Inventory slot click / contextmenu via delegation
+  // Inventory click / contextmenu
   const invGrid = document.getElementById('slots');
+
   invGrid.addEventListener('click', e => {
     const slot = e.target.closest('.slot');
     if (!slot) return;
     const item = slot.dataset.item;
-    console.log('[inv UI] useItem →', item);
     fetch(`https://${RNAME}/useItem`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ item })
-    }).catch(err=>console.error('[inv UI] useItem error →',err));
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ item })
+    }).catch(err => console.error('[inv UI] useItem error →', err));
   });
+
   invGrid.addEventListener('contextmenu', e => {
     const slot = e.target.closest('.slot');
     if (!slot) return;
     e.preventDefault();
     currentSlot = slot.dataset.item;
-    buildCtx(defs[currentSlot].options?.buttons || []);
+    const def = defs[currentSlot] || {};
+    buildCtx(def.options?.buttons || def.buttons || []);
     showCtx(e.clientX, e.clientY);
   });
 
-  // 7) Context menu helpers
+  // Context menu helpers
   function buildCtx(btns) {
     const ctx = document.getElementById('ctxMenu');
     ctx.innerHTML = '';
+
     btns.forEach(b => {
       const el = document.createElement('div');
-      el.className = 'item'; el.textContent = b.label;
-      el.addEventListener('click',()=>{
+      el.className = 'item';
+      el.textContent = b.label;
+      el.addEventListener('click', () => {
         fetch(`https://${RNAME}/buttonAction`, {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ slot: currentSlot, actionKey: b.actionKey })
-        }).catch(err=>console.error('[inv UI] buttonAction error →',err));
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ slot: currentSlot, actionKey: b.actionKey })
+        }).catch(err => console.error('[inv UI] buttonAction error →', err));
         hideCtx();
       });
       ctx.append(el);
     });
+
     // Always add Use/Drop as fallback
-    [['Use','useItem'],['Drop','dropItem']].forEach(([lbl,evt])=>{
-      const el=document.createElement('div');
-      el.className='item'; el.textContent=lbl;
-      el.addEventListener('click',()=>{
-        fetch(`https://${RNAME}/${evt}`,{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ item: currentSlot })
-        }).catch(err=>console.error(`[inv UI] ${evt} error →`,err));
+    [['Use','useItem'],['Drop','dropItem']].forEach(([lbl,evt]) => {
+      const el = document.createElement('div');
+      el.className = 'item';
+      el.textContent = lbl;
+      el.addEventListener('click', () => {
+        fetch(`https://${RNAME}/${evt}`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ item: currentSlot, qty: 1 })
+        }).catch(err => console.error(`[inv UI] ${evt} error →`, err));
         hideCtx();
       });
       ctx.append(el);
     });
   }
-  function showCtx(x,y){
-    const ctx=document.getElementById('ctxMenu');
-    ctx.style.top=`${y}px`; ctx.style.left=`${x}px`; ctx.style.display='block';
+
+  function showCtx(x, y) {
+    const ctx = document.getElementById('ctxMenu');
+    ctx.style.top = `${y}px`;
+    ctx.style.left = `${x}px`;
+    ctx.style.display = 'block';
   }
-  function hideCtx(){
-    const ctx=document.getElementById('ctxMenu');
-    ctx.style.display='none';
-    currentSlot=null;
+  function hideCtx() {
+    const ctx = document.getElementById('ctxMenu');
+    ctx.style.display = 'none';
+    currentSlot = null;
   }
 
-  // 8) Inventory close handlers
-  document.getElementById('closeBtn').addEventListener('click',()=>fetch(`https://${RNAME}/close`,{method:'POST'}));
+  // Close button
+  document.getElementById('closeBtn').addEventListener('click', () => {
+    fetch(`https://${RNAME}/close`, { method: 'POST' }).catch(()=>{});
+  });
 
-  // 9) Shop rendering (unchanged)
+  // Shop rendering
   function renderShop(shop) {
-    document.getElementById('shopName').textContent = shop.name;
+    document.getElementById('shopName').textContent = shop.name || 'Shop';
     const grid = document.getElementById('shopItems');
     grid.innerHTML = '';
-    shop.items.forEach(it => {
+
+    (shop.items || []).forEach(it => {
       const slot = document.createElement('div');
-      slot.className='slot'; slot.dataset.name=it.name; slot.dataset.price=it.price;
-      const imgC=document.createElement('div'); imgC.className='slot-img';
-      if(defs[it.name]?.imageUrl){ const img=new Image(); img.src=defs[it.name].imageUrl; imgC.append(img); }
+      slot.className = 'slot';
+      slot.dataset.name = it.name;
+      slot.dataset.price = it.price;
+
+      const imgC = document.createElement('div');
+      imgC.className = 'slot-img';
+
+      const def = defs[it.name] || {};
+      const fbText = fallbackBubbleText(it.name);
+      const weaponAsset = isWeaponItem(it.name, def) ? toWeaponAssetName(it.name, def) : null;
+      const weaponUrl = weaponAsset ? `${WEAPON_BASE}${weaponAsset}.png` : null;
+
+      if (def.imageUrl) {
+        trySetImage(imgC, def.imageUrl, weaponUrl || (def.image ? `img/${def.image}` : null), fbText);
+      } else if (weaponUrl) {
+        trySetImage(imgC, weaponUrl, def.image ? `img/${def.image}` : null, fbText);
+      } else if (def.image) {
+        trySetImage(imgC, `img/${def.image}`, null, fbText);
+      } else {
+        imgC.append(makeFallbackBubble(fbText));
+      }
+
       slot.append(imgC);
-      const nameEl=document.createElement('div');
-      nameEl.className='slot-name';
-      nameEl.textContent = `${defs[it.name]?.label||it.name} — $${it.price}`;
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'slot-name';
+      nameEl.textContent = `${(def.label || it.name)} — $${it.price}`;
       slot.append(nameEl);
+
       grid.append(slot);
     });
   }
 
-  // 10) Show/hide shop (listen for messages)
-  window.addEventListener('message',e=>{
-    const d=e.data;
-    if(d.action==='showShop'){
+  // Shop show/hide messages
+  window.addEventListener('message', e => {
+    const d = e.data;
+    if (d.action === 'showShop') {
       document.getElementById('shop').classList.remove('hidden');
-      renderShop(d.shop);
-      isShopOpen = true;
-    } else if(d.action==='hideShop'){
+      renderShop(d.shop || {});
+    } else if (d.action === 'hideShop') {
       document.getElementById('shop').classList.add('hidden');
-      isShopOpen = false;
     }
   });
 
-  // 11) Shop buy via delegation
-  document.getElementById('shopItems').addEventListener('click',e=>{
-    const slot=e.target.closest('.slot');
-    if(!slot) return;
-    const name=slot.dataset.name, price=slot.dataset.price;
-    fetch(`https://${RNAME}/buyItem`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ name, price })
-    }).catch(err=>console.error('[shop UI] buyItem error →',err));
+  // Shop buy via delegation
+  document.getElementById('shopItems').addEventListener('click', e => {
+    const slot = e.target.closest('.slot');
+    if (!slot) return;
+    const name = slot.dataset.name;
+    const price = slot.dataset.price;
+    fetch(`https://${RNAME}/buyItem`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, price })
+    }).catch(err => console.error('[shop UI] buyItem error →', err));
   });
 
-  // 12) Single, robust ESC handler: check DOM visibility and send correct callback.
+  // Shop close button
+  document.getElementById('shopCloseBtn').addEventListener('click', () => {
+    fetch(`https://${RNAME}/closeUI`, { method: 'POST' }).catch(()=>{});
+  });
+
+  // Single, robust ESC handler (shop first, then inventory)
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' || e.key === 'Esc') {
-      // prevent the game/DOM from doing anything else while we handle it
       try { e.preventDefault(); e.stopPropagation(); } catch(_) {}
+
       const shopEl = document.getElementById('shop');
       const invEl  = document.getElementById('inventory');
+
       const shopVisible = shopEl && !shopEl.classList.contains('hidden');
       const invVisible  = invEl  && !invEl.classList.contains('hidden');
 
       if (shopVisible) {
-        // close shop first if visible
-        fetch(`https://${RNAME}/closeUI`, { method: 'POST' }).catch(err=>console.error('[shop UI] closeUI error →',err));
+        fetch(`https://${RNAME}/closeUI`, { method: 'POST' }).catch(()=>{});
       } else if (invVisible) {
-        // close inventory
-        fetch(`https://${RNAME}/close`, { method: 'POST' }).catch(err=>console.error('[inv UI] close error →',err));
+        fetch(`https://${RNAME}/close`, { method: 'POST' }).catch(()=>{});
       } else {
-        // nothing open: hide context menu
         hideCtx();
       }
     }
+  });
+
+  // Hide ctx if you click elsewhere
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#ctxMenu') && !e.target.closest('.slot')) hideCtx();
   });
 
 })();

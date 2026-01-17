@@ -98,7 +98,7 @@ Shops = {
     radius = 2.0,
     robbable = true,
     items  = {
-      { name = "pistol",   price = 500 },
+      { name = "weapon_pistol",   price = 500 },
       { name = "rifle",    price = 1500 },
     },
     blip = {

@@ -1,6 +1,16 @@
+print(('[Az-Inventory] server loaded (%s)'):format(GetCurrentResourceName()))
 -- server.lua (fixed + deterministic inventory:useItem + shop find fallback + shop:buyItem)
 -- Inventory + shop robbery handler (server-side authoritative)
 -- PER-LOCATION shop state support (fixes closing all locations when one is robbed)
+
+
+-- Basic DB lib sanity check (this script expects MySQL.Sync.* from oxmysql/mysql-async)
+CreateThread(function()
+  Wait(0)
+  if not MySQL or not MySQL.Sync then
+    print('^1[Az-Inventory]^7 MySQL library not found. Ensure oxmysql (or mysql-async) is installed and loaded.')
+  end
+end)
 
 local MAX_WEIGHT = 120.0
 local PlayerInv   = {}  -- src → { [item]=count }
