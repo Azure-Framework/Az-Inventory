@@ -1,7 +1,4 @@
 print(('[Az-Inventory] server loaded (%s)'):format(GetCurrentResourceName()))
--- server.lua (fixed + deterministic inventory:useItem + shop find fallback + shop:buyItem)
--- Inventory + shop robbery handler (server-side authoritative)
--- PER-LOCATION shop state support (fixes closing all locations when one is robbed)
 
 
 -- Basic DB lib sanity check (this script expects MySQL.Sync.* from oxmysql/mysql-async)
@@ -21,6 +18,51 @@ local ActiveCharID = {} -- src → charID
 local LastDropAt = {}
 local LastPickupAt = {}
 local NOTIFY_EVERYTHING = true
+local PlayerMetadata = {} -- src -> slotId -> { item, metadata }
+local RegisteredStashes = {}
+local HookRegistry = {}
+local RegisteredShops = {}
+local TemporaryStashes = {}
+local ConfiscatedInventories = {}
+
+local loadPlayerMetadata
+local savePlayerMetadataSlot
+local ensureMetadataConsistency
+
+
+
+local function runHooks(eventName, payload)
+  for id, hook in pairs(HookRegistry) do
+    if hook and hook.event == eventName and type(hook.cb) == 'function' then
+      local options = hook.options or {}
+      local allowed = true
+      if allowed and options.itemFilter and payload and payload.itemName then
+        allowed = options.itemFilter[payload.itemName] == true
+      end
+      if allowed and options.inventoryFilter and payload then
+        allowed = false
+        local fromInv = tostring(payload.fromInventory or '')
+        local toInv = tostring(payload.toInventory or '')
+        for _, pattern in pairs(options.inventoryFilter) do
+          pattern = tostring(pattern or '')
+          if pattern ~= '' and (fromInv:find(pattern) or toInv:find(pattern)) then
+            allowed = true
+            break
+          end
+        end
+      end
+      if allowed then
+        local ok, result = pcall(hook.cb, payload)
+        if not ok then
+          print(('[Az-Inventory] hook %s (%s) failed: %s'):format(tostring(id), tostring(eventName), tostring(result)))
+        elseif result == false then
+          return false
+        end
+      end
+    end
+  end
+  return true
+end
 
 -- Load Config (try global, then require)
 Config = Config or (pcall(function() return require("config") end) and require("config") or nil) or Config or {}
@@ -31,13 +73,164 @@ Config.RequiredWeaponItems = Config.RequiredWeaponItems or {}
 Config.RequiredCops = tonumber(Config.RequiredCops or 0) or 0
 Config.MaxRobDistance = tonumber(Config.MaxRobDistance or 4.0) or 4.0
 Config.AntiSpam = Config.AntiSpam or { PerPlayerAttemptCooldown = 5 }
-local DEBUG = Config.Debug or true
+MAX_WEIGHT = tonumber(Config.MaxWeight) or MAX_WEIGHT
+local DEBUG = Config.Debug == true
 
 -- shopState now: shopState[ shopName ] = { closed = { [locIndex] = ts, ... } }
 local shopState = {} -- populated from memory or file if persistence enabled
 
 -- attemptRob anti-spam timestamps
 local LastRobAttempt = {} -- src -> unix seconds
+
+local computeWeight
+local ensureInv
+local saveItemSlot
+local safeNotify
+
+-- Ensure required tables exist
+CreateThread(function()
+  Wait(500)
+  if not MySQL or not MySQL.Sync or not MySQL.Sync.execute then return end
+
+  local statements = {
+    [[
+      CREATE TABLE IF NOT EXISTS user_inventory (
+        discordid VARCHAR(64) NOT NULL,
+        charid VARCHAR(64) NOT NULL,
+        item VARCHAR(64) NOT NULL,
+        count INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (discordid, charid, item)
+      )
+    ]],
+    [[
+      CREATE TABLE IF NOT EXISTS vehicle_inventory (
+        plate VARCHAR(16) NOT NULL,
+        storage_type VARCHAR(16) NOT NULL,
+        item VARCHAR(64) NOT NULL,
+        count INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (plate, storage_type, item)
+      )
+    ]],
+    [[
+      CREATE TABLE IF NOT EXISTS user_inventory_metadata (
+        discordid VARCHAR(64) NOT NULL,
+        charid VARCHAR(64) NOT NULL,
+        slot INT NOT NULL,
+        item VARCHAR(64) NOT NULL,
+        metadata LONGTEXT NULL,
+        PRIMARY KEY (discordid, charid, slot)
+      )
+    ]],
+    [[
+      CREATE TABLE IF NOT EXISTS az_stashes (
+        stash VARCHAR(128) NOT NULL,
+        item VARCHAR(64) NOT NULL,
+        count INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (stash, item)
+      )
+    ]]
+  }
+
+  for _, sql in ipairs(statements) do
+    local ok, err = pcall(function() MySQL.Sync.execute(sql, {}) end)
+    if not ok then
+      print(('[Az-Inventory] failed creating table: %s'):format(tostring(err)))
+    end
+  end
+end)
+
+local function normalizePlate(plate)
+  plate = tostring(plate or ''):upper():gsub('%s+', '')
+  if plate == '' then plate = 'UNKNOWN' end
+  return plate
+end
+
+local function getVehicleStorageMaxWeight(kind)
+  local cfg = (Config and Config.VehicleStorage) or {}
+  if kind == 'glovebox' then
+    return tonumber(cfg.GloveboxMaxWeight) or 12.0
+  end
+  return tonumber(cfg.TrunkMaxWeight) or 75.0
+end
+
+local function loadVehicleInventory(plate, kind)
+  plate = normalizePlate(plate)
+  kind = tostring(kind or 'trunk')
+
+  local rows = {}
+  local ok, res = pcall(function()
+    return MySQL.Sync.fetchAll([[
+      SELECT item, count
+        FROM vehicle_inventory
+       WHERE plate = @plate
+         AND storage_type = @storage_type
+    ]], {
+      ['@plate'] = plate,
+      ['@storage_type'] = kind,
+    })
+  end)
+  if ok and type(res) == 'table' then rows = res end
+
+  local inv = {}
+  for _, row in ipairs(rows) do
+    local count = tonumber(row.count) or 0
+    if row.item and count > 0 then
+      inv[row.item] = count
+    end
+  end
+
+  return inv
+end
+
+local function saveVehicleInventorySlot(plate, kind, itemKey, count)
+  plate = normalizePlate(plate)
+  kind = tostring(kind or 'trunk')
+  count = tonumber(count) or 0
+
+  if count > 0 then
+    MySQL.Sync.execute([[
+      INSERT INTO vehicle_inventory (plate, storage_type, item, count)
+      VALUES (@plate, @storage_type, @item, @count)
+      ON DUPLICATE KEY UPDATE count = @count
+    ]], {
+      ['@plate'] = plate,
+      ['@storage_type'] = kind,
+      ['@item'] = itemKey,
+      ['@count'] = count,
+    })
+  else
+    MySQL.Sync.execute([[
+      DELETE FROM vehicle_inventory
+       WHERE plate = @plate
+         AND storage_type = @storage_type
+         AND item = @item
+    ]], {
+      ['@plate'] = plate,
+      ['@storage_type'] = kind,
+      ['@item'] = itemKey,
+    })
+  end
+end
+
+local function sendVehicleStorageState(src, kind, plate)
+  local playerInv = ensureInv(src)
+  local storageInv = (kind == 'stash' and loadStashInventory(plate) or loadVehicleInventory(plate, kind))
+  local playerWeight = computeWeight(playerInv)
+  local storageWeight = computeWeight(storageInv)
+  PlayerW[src] = playerWeight
+
+  TriggerClientEvent('inventory:vehicleStorageData', src, {
+    kind = kind,
+    plate = normalizePlate(plate),
+    playerItems = playerInv,
+    playerWeight = playerWeight,
+    playerMaxWeight = MAX_WEIGHT,
+    storageItems = storageInv,
+    storageWeight = storageWeight,
+    storageMaxWeight = getVehicleStorageMaxWeight(kind),
+  })
+end
 
 
 -- NORMALIZE SHOPS (server-side)
@@ -117,7 +310,7 @@ end
 normalizeShopsTable()
 
 -- helper: Notify (uses notify helper if present, falls back to chat)
-local function safeNotify(src, msg, opts)
+safeNotify = function(src, msg, opts)
   if not src or not msg then return end
   opts = opts or {}
   if type(notify) == "function" then
@@ -172,7 +365,7 @@ end
 local function getPlayerKeys(src) return getPlayerKeysSync(src) end
 
 -- Compute total carry weight
-local function computeWeight(inv)
+computeWeight = function(inv)
   local total = 0.0
   for item, cnt in pairs(inv) do
     local def = Items and Items[item]
@@ -213,12 +406,250 @@ local function loadInv(src)
   end
   PlayerInv[src] = inv
   PlayerW[src] = computeWeight(inv)
+  loadPlayerMetadata(src)
+  ensureMetadataConsistency(src)
   return inv
 end
 
-function ensureInv(src)
+ensureInv = function(src)
   if not PlayerInv[src] then loadInv(src) end
   return PlayerInv[src] or {}
+end
+
+
+local function encodeJson(v)
+  local ok, out = pcall(function() return json.encode(v or {}) end)
+  if ok then return out end
+  return '{}'
+end
+
+local function decodeJson(v)
+  if type(v) == 'table' then return v end
+  if type(v) ~= 'string' or v == '' then return {} end
+  local ok, out = pcall(function() return json.decode(v) end)
+  return (ok and type(out) == 'table') and out or {}
+end
+
+local function getPlayerSlotState(src)
+  PlayerMetadata[src] = PlayerMetadata[src] or {}
+  return PlayerMetadata[src]
+end
+
+loadPlayerMetadata = function(src)
+  local discordID, charID = getPlayerKeysSync(src)
+  local slots = {}
+  if discordID == '' or charID == '' then
+    PlayerMetadata[src] = slots
+    return slots
+  end
+
+  local rows = {}
+  local ok, res = pcall(function()
+    return MySQL.Sync.fetchAll([[
+      SELECT slot, item, metadata
+      FROM user_inventory_metadata
+      WHERE discordid = @discordid AND charid = @charid
+      ORDER BY slot ASC
+    ]], { ['@discordid'] = discordID, ['@charid'] = charID })
+  end)
+  if ok and type(res) == 'table' then rows = res end
+
+  for _, row in ipairs(rows) do
+    local slotId = tonumber(row.slot)
+    if slotId and slotId > 0 then
+      slots[slotId] = { item = tostring(row.item or ''), metadata = decodeJson(row.metadata) }
+    end
+  end
+
+  PlayerMetadata[src] = slots
+  return slots
+end
+
+savePlayerMetadataSlot = function(src, slotId)
+  slotId = tonumber(slotId)
+  if not slotId or slotId < 1 then return end
+  local discordID, charID = getPlayerKeysSync(src)
+  if discordID == '' or charID == '' then return end
+  local slots = getPlayerSlotState(src)
+  local entry = slots[slotId]
+  if entry and entry.item then
+    MySQL.Sync.execute([[
+      INSERT INTO user_inventory_metadata (discordid, charid, slot, item, metadata)
+      VALUES (@discordid, @charid, @slot, @item, @metadata)
+      ON DUPLICATE KEY UPDATE item = @item, metadata = @metadata
+    ]], {
+      ['@discordid'] = discordID,
+      ['@charid'] = charID,
+      ['@slot'] = slotId,
+      ['@item'] = entry.item,
+      ['@metadata'] = encodeJson(entry.metadata or {})
+    })
+  else
+    MySQL.Sync.execute([[
+      DELETE FROM user_inventory_metadata
+      WHERE discordid = @discordid AND charid = @charid AND slot = @slot
+    ]], {
+      ['@discordid'] = discordID,
+      ['@charid'] = charID,
+      ['@slot'] = slotId,
+    })
+  end
+end
+
+local function nextFreeSlot(src)
+  local slots = getPlayerSlotState(src)
+  local i = 1
+  while slots[i] do i = i + 1 end
+  return i
+end
+
+local function getItemCountFromSlots(src, itemName)
+  local total = 0
+  for _, entry in pairs(getPlayerSlotState(src)) do
+    if entry.item == itemName then total = total + 1 end
+  end
+  return total
+end
+
+ensureMetadataConsistency = function(src)
+  local inv = ensureInv(src)
+  local slots = getPlayerSlotState(src)
+  local expectedSingles = {}
+  for itemName, count in pairs(inv) do
+    local def = Items and Items[itemName] or nil
+    if def and def.stack == false then
+      expectedSingles[itemName] = tonumber(count) or 0
+    end
+  end
+
+  local currentSingles = {}
+  for slotId, entry in pairs(slots) do
+    if entry and entry.item and expectedSingles[entry.item] then
+      currentSingles[entry.item] = (currentSingles[entry.item] or 0) + 1
+    else
+      slots[slotId] = nil
+      savePlayerMetadataSlot(src, slotId)
+    end
+  end
+
+  for itemName, needed in pairs(expectedSingles) do
+    local have = currentSingles[itemName] or 0
+    while have < needed do
+      local slotId = nextFreeSlot(src)
+      slots[slotId] = { item = itemName, metadata = {} }
+      savePlayerMetadataSlot(src, slotId)
+      have = have + 1
+    end
+  end
+end
+
+local function buildOxSlotItems(src)
+  ensureInv(src)
+  if not PlayerMetadata[src] then loadPlayerMetadata(src) end
+  ensureMetadataConsistency(src)
+
+  local inv = ensureInv(src)
+  local slots = getPlayerSlotState(src)
+  local out = {}
+  local usedStack = {}
+
+  for slotId, entry in pairs(slots) do
+    local def = Items and Items[entry.item] or {}
+    out[slotId] = {
+      slot = slotId,
+      name = entry.item,
+      label = def.label or entry.item,
+      count = 1,
+      weight = tonumber(def.weight) or 0,
+      metadata = entry.metadata or {},
+      stack = def.stack ~= false,
+      description = def.description,
+      close = def.close,
+    }
+    usedStack[entry.item] = (usedStack[entry.item] or 0) + 1
+  end
+
+  for itemName, count in pairs(inv) do
+    local def = Items and Items[itemName] or {}
+    if def.stack ~= false then
+      local slotId = nextFreeSlot(src)
+      while out[slotId] do slotId = slotId + 1 end
+      out[slotId] = {
+        slot = slotId,
+        name = itemName,
+        label = def.label or itemName,
+        count = tonumber(count) or 0,
+        weight = tonumber(def.weight) or 0,
+        metadata = {},
+        stack = true,
+        description = def.description,
+        close = def.close,
+      }
+    end
+  end
+
+  return out
+end
+
+local function findSlotForItem(src, itemName)
+  local slots = buildOxSlotItems(src)
+  for slotId, data in pairs(slots) do
+    if data.name == itemName then return slotId, data end
+  end
+end
+
+local function stashKey(name)
+  return tostring(name or '')
+end
+
+local function loadStashInventory(name)
+  name = stashKey(name)
+  local rows = {}
+  local ok, res = pcall(function()
+    return MySQL.Sync.fetchAll('SELECT item, count FROM az_stashes WHERE stash = @stash', { ['@stash'] = name })
+  end)
+  if ok and type(res) == 'table' then rows = res end
+  local inv = {}
+  for _, row in ipairs(rows) do
+    local count = tonumber(row.count) or 0
+    if row.item and count > 0 then inv[row.item] = count end
+  end
+  return inv
+end
+
+local function saveStashItem(name, itemName, count)
+  name = stashKey(name)
+  count = tonumber(count) or 0
+  if count > 0 then
+    MySQL.Sync.execute([[
+      INSERT INTO az_stashes (stash, item, count)
+      VALUES (@stash, @item, @count)
+      ON DUPLICATE KEY UPDATE count = @count
+    ]], { ['@stash'] = name, ['@item'] = itemName, ['@count'] = count })
+  else
+    MySQL.Sync.execute('DELETE FROM az_stashes WHERE stash = @stash AND item = @item', { ['@stash'] = name, ['@item'] = itemName })
+  end
+end
+
+local function sendStashState(src, stashName)
+  local playerInv = ensureInv(src)
+  local stashInv = loadStashInventory(stashName)
+  local playerWeight = computeWeight(playerInv)
+  local stashWeight = computeWeight(stashInv)
+  PlayerW[src] = playerWeight
+  local cfg = RegisteredStashes[stashName] or { label = stashName, slots = 20, weight = 10000 }
+
+  TriggerClientEvent('inventory:vehicleStorageData', src, {
+    kind = 'stash',
+    plate = stashName,
+    storageLabel = cfg.label or stashName,
+    playerItems = playerInv,
+    playerWeight = playerWeight,
+    playerMaxWeight = MAX_WEIGHT,
+    storageItems = stashInv,
+    storageWeight = stashWeight,
+    storageMaxWeight = tonumber(cfg.weight) or 10000,
+  })
 end
 
 local function sendInv(src)
@@ -226,10 +657,121 @@ local function sendInv(src)
   local weight = computeWeight(inv)
   PlayerW[src] = weight
   TriggerClientEvent("inventory:refresh", src, inv, weight, MAX_WEIGHT)
+  TriggerClientEvent('az_inventory:syncOxSlots', src, buildOxSlotItems(src))
 end
 
+
+RegisterNetEvent('inventory:openVehicleStorage')
+AddEventHandler('inventory:openVehicleStorage', function(payload)
+  local src = source
+  payload = payload or {}
+
+  if not (Config.VehicleStorage and Config.VehicleStorage.Enabled) then
+    safeNotify(src, 'Vehicle storage is disabled.', { type = 'error', title = 'Inventory' })
+    return
+  end
+
+  local kind = tostring(payload.kind or 'trunk')
+  if kind ~= 'trunk' and kind ~= 'glovebox' then
+    safeNotify(src, 'Invalid storage type.', { type = 'error', title = 'Inventory' })
+    return
+  end
+
+  local plate = normalizePlate(payload.plate)
+  if plate == 'UNKNOWN' then
+    safeNotify(src, 'Could not read the vehicle plate.', { type = 'error', title = 'Inventory' })
+    return
+  end
+
+  sendVehicleStorageState(src, kind, plate)
+end)
+
+RegisterNetEvent('inventory:transferVehicleStorage')
+AddEventHandler('inventory:transferVehicleStorage', function(kind, plate, direction, itemKey, qty)
+  local src = source
+  kind = tostring(kind or 'trunk')
+  if kind ~= 'stash' and not (Config.VehicleStorage and Config.VehicleStorage.Enabled) then return end
+  direction = tostring(direction or '')
+  itemKey = tostring(itemKey or '')
+  qty = math.floor(tonumber(qty) or 1)
+  plate = normalizePlate(plate)
+
+  if (kind ~= 'trunk' and kind ~= 'glovebox' and kind ~= 'stash') or (direction ~= 'deposit' and direction ~= 'withdraw') then
+    safeNotify(src, 'Invalid transfer request.', { type = 'error', title = 'Inventory' })
+    return
+  end
+
+  if itemKey == '' or not Items or not Items[itemKey] then
+    safeNotify(src, 'Invalid item.', { type = 'error', title = 'Inventory' })
+    return
+  end
+
+  if qty < 1 then qty = 1 end
+
+  local playerInv = ensureInv(src)
+  local storageInv = (kind == 'stash' and loadStashInventory(plate) or loadVehicleInventory(plate, kind))
+  local def = Items[itemKey]
+  local itemWeight = tonumber(def.weight) or 0.0
+  local storageMax = (kind == 'stash' and tonumber((RegisteredStashes[plate] or {}).weight) or getVehicleStorageMaxWeight(kind)) or 10000
+
+  if direction == 'deposit' then
+    local have = tonumber(playerInv[itemKey]) or 0
+    if have < qty then
+      safeNotify(src, ('You do not have %d× %s.'):format(qty, def.label or itemKey), { type = 'error', title = 'Inventory' })
+      return
+    end
+
+    local newStorageWeight = computeWeight(storageInv) + (itemWeight * qty)
+    if newStorageWeight > storageMax then
+      safeNotify(src, 'That storage is full.', { type = 'error', title = 'Inventory' })
+      return
+    end
+
+    playerInv[itemKey] = have - qty
+    if playerInv[itemKey] <= 0 then playerInv[itemKey] = nil end
+    storageInv[itemKey] = (storageInv[itemKey] or 0) + qty
+  else
+    local have = tonumber(storageInv[itemKey]) or 0
+    if have < qty then
+      safeNotify(src, ('There are not %d× %s in storage.'):format(qty, def.label or itemKey), { type = 'error', title = 'Inventory' })
+      return
+    end
+
+    local newPlayerWeight = computeWeight(playerInv) + (itemWeight * qty)
+    if newPlayerWeight > MAX_WEIGHT then
+      safeNotify(src, 'You cannot carry that much.', { type = 'error', title = 'Inventory' })
+      return
+    end
+
+    storageInv[itemKey] = have - qty
+    if storageInv[itemKey] <= 0 then storageInv[itemKey] = nil end
+    playerInv[itemKey] = (playerInv[itemKey] or 0) + qty
+  end
+
+  PlayerInv[src] = playerInv
+  PlayerW[src] = computeWeight(playerInv)
+
+  local ok1, err1 = pcall(function() saveItemSlot(src, itemKey) end)
+  if not ok1 then
+    print(('[Az-Inventory] saveItemSlot failed for %s: %s'):format(tostring(itemKey), tostring(err1)))
+  end
+
+  local newStorageCount = storageInv[itemKey] or 0
+  local ok2, err2
+  if kind == 'stash' then
+    ok2, err2 = pcall(function() saveStashItem(plate, itemKey, newStorageCount) end)
+  else
+    ok2, err2 = pcall(function() saveVehicleInventorySlot(plate, kind, itemKey, newStorageCount) end)
+  end
+  if not ok2 then
+    print(('[Az-Inventory] storage save failed for %s %s %s: %s'):format(tostring(plate), tostring(kind), tostring(itemKey), tostring(err2)))
+  end
+
+  if kind == 'stash' then sendStashState(src, plate) else sendVehicleStorageState(src, kind, plate) end
+end)
+
 -- Synchronous save item slot (logs when skipping DB write)
-local function saveItemSlot(src, itemKey)
+saveItemSlot = function(src, itemKey)
   local inv = ensureInv(src)
   local count = inv[itemKey] or 0
   local discordID = getDiscordFromIdentifiers(src) or ""
@@ -676,26 +1218,6 @@ AddEventHandler("inventory:useItem", function(key, qty)
     return
   end
 
-  -- remove item from inventory (in-memory)
-  inv[key] = beforeCount - qty
-  if inv[key] <= 0 then inv[key] = nil end
-
-  local afterCount = inv[key] or 0
-  print(("[inventory] useItem - after remove (src=%s item=%s count=%s)"):format(tostring(src), tostring(key), tostring(afterCount)))
-
-  -- persist that slot (if possible) and send immediate refresh to client
-  local ok, err = pcall(function() saveItemSlot(src, key) end)
-  if not ok then
-    print(("[inventory] useItem - saveItemSlot failed for src=%s item=%s err=%s"):format(tostring(src), tostring(key), tostring(err)))
-  end
-
-  -- update weight & send immediate refresh
-  PlayerW[src] = computeWeight(inv)
-  TriggerClientEvent("inventory:refresh", src, inv, PlayerW[src] or 0.0, MAX_WEIGHT)
-
-  safeNotify(src, ("Used %d× %s"):format(qty, key), { type = "inform", title = "Inventory" })
-
-  -- post-use routing: broadcast and call handlers (server-side)
   local def = nil
   if GetItemDefinition then
     local okd, resd = pcall(function() return GetItemDefinition(key) end)
@@ -703,6 +1225,45 @@ AddEventHandler("inventory:useItem", function(key, qty)
   end
   if not def and Items then def = Items[key] end
 
+  local shouldConsume = true
+  if def and tonumber(def.consume) == 0 then
+    shouldConsume = false
+  end
+
+  local slotIdForUse = nil
+  if def and def.stack == false then
+    slotIdForUse = findSlotForItem(src, key)
+  end
+
+  if shouldConsume then
+    inv[key] = beforeCount - qty
+    if inv[key] <= 0 then inv[key] = nil end
+    if slotIdForUse then
+      local slots = getPlayerSlotState(src)
+      slots[slotIdForUse] = nil
+      savePlayerMetadataSlot(src, slotIdForUse)
+    end
+  end
+
+  local afterCount = inv[key] or 0
+  print(("[inventory] useItem - after remove (src=%s item=%s count=%s)"):format(tostring(src), tostring(key), tostring(afterCount)))
+
+  local ok, err = pcall(function() saveItemSlot(src, key) end)
+  if not ok then
+    print(("[inventory] useItem - saveItemSlot failed for src=%s item=%s err=%s"):format(tostring(src), tostring(key), tostring(err)))
+  end
+
+  PlayerW[src] = computeWeight(inv)
+  TriggerClientEvent("inventory:refresh", src, inv, PlayerW[src] or 0.0, MAX_WEIGHT)
+  TriggerClientEvent('az_inventory:syncOxSlots', src, buildOxSlotItems(src))
+
+  if shouldConsume then
+    safeNotify(src, ("Used %d× %s"):format(qty, key), { type = "inform", title = "Inventory" })
+  else
+    safeNotify(src, ("Used %s"):format((Items[key] and Items[key].label) or key), { type = "inform", title = "Inventory" })
+  end
+
+  -- post-use routing: broadcast and call handlers (server-side)
   pcall(function() TriggerEvent('inventory:itemUsed', src, key, qty, def) end)
 
   if def and def.server and def.server.event and type(def.server.event) == 'string' then
@@ -1505,4 +2066,461 @@ AddEventHandler('inventory:requestOpenOther', function(targetId)
   if not allowed then safeNotify(src, "You don't have permission to view another player's inventory.", { type = "error", title = "Inventory" }); return end
   local ok, res = pcall(function() return openPlayerInventory(src, targetId) end)
   if not ok then safeNotify(src, ("Failed to open inventory: %s"):format(tostring(res)), { type = "error", title = "Inventory" }) end
+end)
+
+
+-- ox_inventory compatibility shim
+exports('Items', function(item)
+  if item then return Items and Items[item] or nil end
+  return Items
+end)
+exports('ItemList', function(item)
+  if item then return Items and Items[item] or nil end
+  return Items
+end)
+exports('GetInventoryItems', function(src)
+  src = tonumber(src) or source
+  return buildOxSlotItems(src)
+end)
+exports('Search', function(src, search, item)
+  src = tonumber(src) or source
+  if search == 'count' then
+    local inv = ensureInv(src)
+    return tonumber(inv[item] or 0) or 0
+  end
+  return 0
+end)
+exports('GetItem', function(src, item, metadata, returnsCount)
+  src = tonumber(src) or source
+  local inv = ensureInv(src)
+  local count = tonumber(inv[item] or 0) or 0
+  if returnsCount then return count end
+  local def = Items and Items[item] or {}
+  return { name = item, label = def.label or item, count = count, metadata = metadata or {} }
+end)
+exports('CanCarryItem', function(src, item, count)
+  src = tonumber(src) or source
+  count = tonumber(count) or 1
+  local inv = ensureInv(src)
+  local def = Items and Items[item] or {}
+  local weight = tonumber(def.weight) or 0
+  return ((computeWeight(inv) + (weight * count)) <= MAX_WEIGHT)
+end)
+exports('AddItem', function(src, item, count, metadata, slot)
+  src = tonumber(src) or source
+  count = tonumber(count) or 1
+  if count < 1 then count = 1 end
+  if not item or not Items or not Items[item] then return false end
+  if not exports[GetCurrentResourceName()]:CanCarryItem(src, item, count) then return false end
+  if runHooks('createItem', { inventoryId = src, item = { name = item }, itemName = item, metadata = metadata or {}, count = count }) == false then return false end
+  local inv = ensureInv(src)
+  inv[item] = (tonumber(inv[item]) or 0) + count
+  if Items[item].stack == false then
+    local slots = getPlayerSlotState(src)
+    for i=1,count do
+      local slotId = tonumber(slot) or nextFreeSlot(src)
+      while slots[slotId] do slotId = slotId + 1 end
+      slots[slotId] = { item = item, metadata = type(metadata) == 'table' and metadata or {} }
+      savePlayerMetadataSlot(src, slotId)
+    end
+  end
+  saveItemSlot(src, item)
+  sendInv(src)
+  return true
+end)
+exports('RemoveItem', function(src, item, count, metadata, slot)
+  src = tonumber(src) or source
+  count = tonumber(count) or 1
+  local inv = ensureInv(src)
+  if (tonumber(inv[item]) or 0) < count then return false end
+  inv[item] = (tonumber(inv[item]) or 0) - count
+  if inv[item] <= 0 then inv[item] = nil end
+  if Items[item] and Items[item].stack == false then
+    local slots = getPlayerSlotState(src)
+    local removed = 0
+    if slot and slots[tonumber(slot)] and slots[tonumber(slot)].item == item then
+      slots[tonumber(slot)] = nil
+      savePlayerMetadataSlot(src, tonumber(slot))
+      removed = removed + 1
+    end
+    if removed < count then
+      for slotId, entry in pairs(slots) do
+        if removed >= count then break end
+        if entry.item == item then
+          slots[slotId] = nil
+          savePlayerMetadataSlot(src, slotId)
+          removed = removed + 1
+        end
+      end
+    end
+  end
+  saveItemSlot(src, item)
+  sendInv(src)
+  return true
+end)
+exports('SetMetadata', function(src, slot, metadata)
+  src = tonumber(src) or source
+  slot = tonumber(slot)
+  if not slot then return false end
+  local slots = getPlayerSlotState(src)
+  if not slots[slot] then return false end
+  slots[slot].metadata = type(metadata) == 'table' and metadata or {}
+  savePlayerMetadataSlot(src, slot)
+  sendInv(src)
+  return true
+end)
+exports('GetSlot', function(src, slot)
+  src = tonumber(src) or source
+  slot = tonumber(slot)
+  local slots = buildOxSlotItems(src)
+  return slot and slots[slot] or nil
+end)
+exports('GetSlotWithItem', function(src, item)
+  src = tonumber(src) or source
+  local _, data = findSlotForItem(src, item)
+  return data
+end)
+exports('GetItemCount', function(src, item)
+  src = tonumber(src) or source
+  return tonumber((ensureInv(src) or {})[item] or 0) or 0
+end)
+exports('RegisterStash', function(name, label, slots, weight, owner)
+  RegisteredStashes[stashKey(name)] = { label = label or name, slots = tonumber(slots) or 20, weight = tonumber(weight) or 10000, owner = owner }
+  return true
+end)
+exports('registerHook', function(event, cb, options)
+  local id = ('hook_%s_%s'):format(tostring(event), tostring(math.random(10000,99999)))
+  HookRegistry[id] = { event = event, cb = cb, options = options }
+  return id
+end)
+exports('removeHooks', function(id)
+  if id == nil then return true end
+  if type(id) == 'table' then
+    for k, v in pairs(id) do
+      local hookId = type(k) == 'number' and v or k
+      if hookId ~= nil then HookRegistry[hookId] = nil end
+    end
+    return true
+  end
+  HookRegistry[id] = nil
+  return true
+end)
+
+exports('Items', function(item)
+  if item then return Items and Items[item] or nil end
+  return Items
+end)
+exports('ItemList', function(item)
+  if item then return Items and Items[item] or nil end
+  return Items
+end)
+exports('Inventory', function(inv, owner)
+  if type(inv) == 'number' then return buildOxSlotItems(inv) end
+  if type(inv) == 'string' then return loadStashInventory(inv) end
+  return nil
+end)
+exports('GetInventory', function(inv, owner)
+  if type(inv) == 'number' then
+    return {
+      id = inv,
+      label = GetPlayerName(inv) or ('Player %s'):format(inv),
+      type = 'player',
+      slots = tonumber(Config.MaxSlots) or 50,
+      maxWeight = MAX_WEIGHT,
+      weight = computeWeight(ensureInv(inv)),
+      items = buildOxSlotItems(inv),
+    }
+  elseif type(inv) == 'string' then
+    local cfg = RegisteredStashes[stashKey(inv)] or TemporaryStashes[stashKey(inv)] or { slots = 20, weight = 10000, label = tostring(inv) }
+    local items = loadStashInventory(inv)
+    return {
+      id = stashKey(inv),
+      label = cfg.label or tostring(inv),
+      type = 'stash',
+      slots = tonumber(cfg.slots) or 20,
+      maxWeight = tonumber(cfg.weight) or 10000,
+      weight = computeWeight(items),
+      items = items,
+    }
+  end
+end)
+exports('GetInventoryItems', function(inv, owner)
+  if type(inv) == 'number' then return buildOxSlotItems(inv) end
+  if type(inv) == 'string' then
+    local out, idx = {}, 1
+    for itemName, count in pairs(loadStashInventory(inv)) do
+      local def = Items and Items[itemName] or {}
+      out[idx] = { slot = idx, name = itemName, label = def.label or itemName, count = count, weight = tonumber(def.weight) or 0, metadata = {} }
+      idx = idx + 1
+    end
+    return out
+  end
+  return {}
+end)
+exports('GetContainerFromSlot', function(inv, slot)
+  return nil
+end)
+exports('RemoveInventory', function(inv)
+  if type(inv) == 'string' then
+    inv = stashKey(inv)
+    MySQL.Sync.execute('DELETE FROM az_stashes WHERE stash = @stash', { ['@stash'] = inv })
+    TemporaryStashes[inv] = nil
+    RegisteredStashes[inv] = nil
+    return true
+  end
+  return false
+end)
+exports('UpdateVehicle', function(...) return true end)
+exports('SwapSlots', function(inv, fromSlot, toSlot)
+  inv = tonumber(inv) or source
+  fromSlot = tonumber(fromSlot)
+  toSlot = tonumber(toSlot)
+  if not fromSlot or not toSlot then return false end
+  local slots = getPlayerSlotState(inv)
+  local payload = {
+    source = inv,
+    fromInventory = inv,
+    toInventory = inv,
+    fromType = 'player',
+    toType = 'player',
+    itemName = slots[fromSlot] and slots[fromSlot].item or nil,
+  }
+  if runHooks('swapItems', payload) == false then return false end
+  slots[fromSlot], slots[toSlot] = slots[toSlot], slots[fromSlot]
+  savePlayerMetadataSlot(inv, fromSlot)
+  savePlayerMetadataSlot(inv, toSlot)
+  sendInv(inv)
+  return true
+end)
+exports('SetItem', function(src, item, count, metadata)
+  src = tonumber(src) or source
+  count = tonumber(count) or 0
+  local inv = ensureInv(src)
+  if count <= 0 then inv[item] = nil else inv[item] = count end
+  saveItemSlot(src, item)
+  sendInv(src)
+  return true
+end)
+exports('GetCurrentWeapon', function(src)
+  return nil
+end)
+exports('SetDurability', function(src, slot, durability)
+  src = tonumber(src) or source
+  slot = tonumber(slot)
+  local slots = getPlayerSlotState(src)
+  if not slot or not slots[slot] then return false end
+  slots[slot].metadata = slots[slot].metadata or {}
+  slots[slot].metadata.durability = durability
+  savePlayerMetadataSlot(src, slot)
+  sendInv(src)
+  return true
+end)
+exports('SetSlotCount', function(src, slots)
+  return true
+end)
+exports('SetMaxWeight', function(src, weight)
+  if type(weight) == 'number' then MAX_WEIGHT = weight end
+  sendInv(tonumber(src) or source)
+  return true
+end)
+exports('Search', function(src, search, item, metadata)
+  src = tonumber(src) or source
+  if search == 'count' then
+    return tonumber((ensureInv(src) or {})[item] or 0) or 0
+  elseif search == 'slots' then
+    return exports[GetCurrentResourceName()]:GetSlotsWithItem(src, item, metadata)
+  end
+  return exports[GetCurrentResourceName()]:GetInventoryItems(src)
+end)
+exports('GetItemSlots', function(src, item, metadata)
+  src = tonumber(src) or source
+  local slots = exports[GetCurrentResourceName()]:GetSlotsWithItem(src, item, metadata)
+  local count = 0
+  for _, slot in pairs(slots or {}) do count = count + (tonumber(slot.count) or 1) end
+  return slots, count
+end)
+exports('CanCarryAmount', function(src, item)
+  src = tonumber(src) or source
+  local def = Items and Items[item] or {}
+  local weight = tonumber(def.weight) or 0
+  if weight <= 0 then return math.huge end
+  local remaining = math.max(0, MAX_WEIGHT - computeWeight(ensureInv(src)))
+  return math.floor(remaining / weight)
+end)
+exports('CanCarryWeight', function(src, weight)
+  src = tonumber(src) or source
+  weight = tonumber(weight) or 0
+  return (computeWeight(ensureInv(src)) + weight) <= MAX_WEIGHT
+end)
+exports('CanSwapItem', function(src, firstItem, firstCount, testItem, testCount)
+  src = tonumber(src) or source
+  firstCount = tonumber(firstCount) or 1
+  testCount = tonumber(testCount) or 1
+  local firstWeight = tonumber((Items and Items[firstItem] and Items[firstItem].weight) or 0) * firstCount
+  local testWeight = tonumber((Items and Items[testItem] and Items[testItem].weight) or 0) * testCount
+  local current = computeWeight(ensureInv(src))
+  return (current - firstWeight + testWeight) <= MAX_WEIGHT
+end)
+exports('CustomDrop', function(prefix, items, coords, slots, maxWeight, instance, model)
+  local dropId = nextDropId
+  nextDropId = nextDropId + 1
+  local firstName, firstCount = nil, 1
+  if type(items) == 'table' then
+    for k, v in pairs(items) do
+      if type(v) == 'table' and v.name then firstName, firstCount = v.name, v.count or 1 break end
+      if type(k) == 'string' then firstName, firstCount = k, v break end
+    end
+  end
+  if not firstName then firstName = prefix or 'unknown' end
+  Drops[dropId] = { id = dropId, item = firstName, count = tonumber(firstCount) or 1, coords = coords or {x=0.0,y=0.0,z=0.0} }
+  TriggerClientEvent('inventory:spawnDrop', -1, Drops[dropId])
+  return dropId
+end)
+exports('CreateDropFromPlayer', function(playerId)
+  playerId = tonumber(playerId)
+  if not playerId then return false end
+  return exports[GetCurrentResourceName()]:CustomDrop('player_drop', ensureInv(playerId), GetEntityCoords(GetPlayerPed(playerId)))
+end)
+exports('ConfiscateInventory', function(sourceId)
+  sourceId = tonumber(sourceId)
+  if not sourceId then return false end
+  ConfiscatedInventories[sourceId] = { inv = ensureInv(sourceId), meta = getPlayerSlotState(sourceId) }
+  PlayerInv[sourceId] = {}
+  PlayerMetadata[sourceId] = {}
+  sendInv(sourceId)
+  TriggerClientEvent('ox_inventory:inventoryConfiscated', sourceId, 'Inventory confiscated')
+  return true
+end)
+exports('ReturnInventory', function(sourceId)
+  sourceId = tonumber(sourceId)
+  local data = ConfiscatedInventories[sourceId]
+  if not data then return false end
+  PlayerInv[sourceId] = data.inv or {}
+  PlayerMetadata[sourceId] = data.meta or {}
+  ConfiscatedInventories[sourceId] = nil
+  sendInv(sourceId)
+  TriggerClientEvent('ox_inventory:inventoryReturned', sourceId, { label = 'Returned' })
+  return true
+end)
+exports('ClearInventory', function(src, keep)
+  src = tonumber(src) or source
+  local inv = ensureInv(src)
+  local keepSet = {}
+  if type(keep) == 'table' then for _, item in pairs(keep) do keepSet[item] = true end end
+  for itemName in pairs(inv) do
+    if not keepSet[itemName] then inv[itemName] = nil end
+  end
+  PlayerMetadata[src] = {}
+  local discordID, charID = getPlayerKeysSync(src)
+  if discordID ~= '' and charID ~= '' then
+    MySQL.Sync.execute('DELETE FROM user_inventory WHERE discordid = @discordid AND charid = @charid', {['@discordid']=discordID,['@charid']=charID})
+    MySQL.Sync.execute('DELETE FROM user_inventory_metadata WHERE discordid = @discordid AND charid = @charid', {['@discordid']=discordID,['@charid']=charID})
+    for itemName, count in pairs(inv) do saveItemSlot(src, itemName) end
+  end
+  sendInv(src)
+  return true
+end)
+exports('GetEmptySlot', function(src)
+  src = tonumber(src) or source
+  return nextFreeSlot(src)
+end)
+exports('GetSlotForItem', function(src, item, metadata)
+  src = tonumber(src) or source
+  local slotId = findSlotForItem(src, item)
+  return slotId
+end)
+exports('GetSlotIdWithItem', function(src, item, metadata)
+  src = tonumber(src) or source
+  local slotId = findSlotForItem(src, item)
+  return slotId
+end)
+exports('GetSlotsWithItem', function(src, item, metadata)
+  src = tonumber(src) or source
+  local out = {}
+  for _, data in pairs(buildOxSlotItems(src)) do
+    if data and data.name == item then out[#out+1] = data end
+  end
+  return out
+end)
+exports('GetSlotIdsWithItem', function(src, item, metadata)
+  src = tonumber(src) or source
+  local out = {}
+  for slotId, data in pairs(buildOxSlotItems(src)) do
+    if data and data.name == item then out[#out+1] = slotId end
+  end
+  return out
+end)
+exports('CreateTemporaryStash', function(properties)
+  local id = stashKey(properties and (properties.id or properties.name) or ('temp_' .. tostring(math.random(10000,99999))))
+  TemporaryStashes[id] = {
+    label = properties and (properties.label or properties.name) or id,
+    slots = tonumber(properties and properties.slots) or 20,
+    weight = tonumber(properties and properties.maxWeight or properties and properties.weight) or 10000,
+    owner = properties and properties.owner,
+  }
+  RegisteredStashes[id] = TemporaryStashes[id]
+  return id
+end)
+exports('InspectInventory', function(target, source)
+  target = tonumber(target)
+  if not target then return nil end
+  return exports[GetCurrentResourceName()]:GetInventory(target)
+end)
+exports('RegisterShop', function(shopType, shopDetails)
+  RegisteredShops[tostring(shopType)] = shopDetails
+  return true
+end)
+exports('setPlayerInventory', function(playerId, data)
+  playerId = tonumber(playerId)
+  if not playerId then return false end
+  PlayerInv[playerId] = {}
+  PlayerMetadata[playerId] = {}
+  local items = data and (data.items or data) or {}
+  for slot, entry in pairs(items) do
+    local itemName = entry.name or entry.item
+    local count = tonumber(entry.count) or 1
+    if itemName then
+      PlayerInv[playerId][itemName] = (PlayerInv[playerId][itemName] or 0) + count
+      if Items[itemName] and Items[itemName].stack == false then
+        local slotId = tonumber(entry.slot or slot) or nextFreeSlot(playerId)
+        PlayerMetadata[playerId][slotId] = { item = itemName, metadata = entry.metadata or {} }
+      end
+    end
+  end
+  for itemName in pairs(PlayerInv[playerId]) do saveItemSlot(playerId, itemName) end
+  sendInv(playerId)
+  TriggerClientEvent('ox_inventory:setPlayerInventory', playerId, {}, buildOxSlotItems(playerId), computeWeight(ensureInv(playerId)), playerId)
+  return true
+end)
+exports('forceOpenInventory', function(playerId, invType, data)
+  playerId = tonumber(playerId)
+  if not playerId then return false end
+  if invType == 'player' then
+    return openPlayerInventory(playerId, tonumber(data) or 0)
+  end
+  TriggerClientEvent('ox_inventory:openInventory', playerId, invType, data)
+  return true
+end)
+
+
+RegisterNetEvent('ox_inventory:usedItemInternal', function(slot)
+  local src = source
+  slot = tonumber(slot)
+  if not slot then return end
+  local slotData = exports[GetCurrentResourceName()]:GetSlot(src, slot)
+  if slotData and slotData.name then
+    TriggerEvent('inventory:useItem', slotData.name, 1)
+  end
+end)
+
+RegisterNetEvent('ox_inventory:forceOpenInventory', function(invType, data)
+  local src = source
+  exports[GetCurrentResourceName()]:forceOpenInventory(src, invType, data)
+end)
+
+RegisterNetEvent('inventory:openStash', function(stashName)
+  local src = source
+  stashName = stashKey(stashName)
+  if stashName == '' then return end
+  sendStashState(src, stashName)
 end)

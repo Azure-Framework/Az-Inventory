@@ -1,4 +1,4 @@
--- new_client.lua (fixed + hardened)
+
 local Items = Items or {}
 
 local function safeCall(fn, ...)

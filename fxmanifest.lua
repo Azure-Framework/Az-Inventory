@@ -1,9 +1,11 @@
 fx_version 'cerulean'
 game 'gta5'
+lua54 'yes'
 
-author 'YourName'
+author 'Azure'
 description 'AZ-Framework NUI Inventory'
 version '1.4.1'
+
 
 -- ox_lib is used for progress bars / notify in item definitions
 shared_scripts {

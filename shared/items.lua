@@ -1185,10 +1185,18 @@ medkit = {
     image       = "firework_launcher.png",
   },
 
-
+  backpack = {
+    label = "Backpack",
+    description = "Portable storage bag.",
+    weight = 1.0,
+    stack = false,
+    consume = 0,
+    close = true,
+    client = { event = nil, export = "wasabi_backpack:openBackpack" },
+    category = "misc",
+    image = "backpack.png",
+  },
 }
-
-
 
 function GetItemDefinition(name)
   return Items[name]

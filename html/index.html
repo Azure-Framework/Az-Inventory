@@ -2,203 +2,345 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Modern Inventory</title>
+  <title>Az-Inventory</title>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
-      width:100%; height:100%;
-      background:transparent; overflow:hidden;
-      user-select:none;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
+
     .hidden { display: none !important; }
 
-    #inventory {
-      position:absolute; top:50%; left:50%;
-      transform:translate(-50%,-50%);
-      width:740px; height:520px;
-      background:rgba(20,22,27,0.95);
-      border:1px solid rgba(80,85,100,0.4);
-      border-radius:12px; box-shadow:0 15px 30px rgba(0,0,0,0.6);
-      display:flex; flex-direction:column;
-    }
-    #inventory.hidden { display:none; }
-
-    .inventory-header {
-      display:flex; justify-content:space-between; align-items:center;
-      padding:18px 24px;
-      background:rgba(30,33,40,0.9);
-      border-bottom:1px solid rgba(60,65,80,0.5);
-    }
-    .inventory-header h2 {
-      color:#e0e4f0; font-size:1.6rem; font-weight:600;
-      letter-spacing:0.5px; text-shadow:0 1px 2px rgba(0,0,0,0.4);
-    }
-    .player-info { display:flex; gap:25px; }
-    .info-box {
-      display:flex; align-items:center; gap:8px;
-      padding:6px 12px;
-      background:rgba(40,45,55,0.7);
-      border:1px solid rgba(70,75,90,0.5);
-      border-radius:6px; color:#a0a8c0; font-size:0.9rem;
-    }
-    .info-box i { color:#6a7bff; font-size:1.1rem; }
-    .info-value { font-weight:600; color:#e0e4f0; }
-
-    .inventory-content { flex:1; display:flex; }
-    .categories {
-      width:140px; background:rgba(25,28,35,0.9);
-      border-right:1px solid rgba(60,65,80,0.5);
-      padding-top:15px;
-    }
-    .category {
-      display:flex; align-items:center; gap:10px;
-      padding:12px 20px; font-size:0.95rem; color:#a0a8c0;
-      cursor:pointer; position:relative; transition:all .2s;
-    }
-    .category:hover { background:rgba(45,50,65,0.5); color:#d0d8f0; }
-    .category.active { background:rgba(55,60,80,0.7); color:#fff; }
-    .category.active::before {
-      content:''; position:absolute; left:0; top:0;
-      height:100%; width:4px; background:#6a7bff; border-radius:0 3px 3px 0;
-    }
-    .category i { font-size:1.1rem; width:20px; text-align:center; }
-
-    .items-grid {
-      flex:1; padding:20px; overflow-y:auto;
-      display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr));
-      grid-gap:15px;
-    }
-
-    .slot {
-      background:rgba(35,40,50,0.7);
-      border:1px solid rgba(70,75,90,0.4);
-      border-radius:8px; height:110px;
-      display:flex; flex-direction:column;
-      align-items:center; justify-content:center;
-      cursor:pointer; position:relative; transition:all .2s;
-    }
-    .slot:hover {
-      transform:translateY(-3px);
-      box-shadow:0 8px 15px rgba(0,0,0,0.3);
-      background:rgba(45,50,65,0.8);
-      border-color:rgba(90,100,150,0.6);
-    }
-    .slot-img {
-      width:50px; height:50px; margin-bottom:8px;
-      display:flex; align-items:center; justify-content:center;
-    }
-    .slot-img img { max-width:90%; max-height:90%; object-fit:contain; }
-
-    .slot-fallback {
-      width:40px; height:40px; border-radius:50%;
-      background:rgba(90,100,150,0.2);
-      display:flex; align-items:center; justify-content:center;
-      color:#6a7bff; font-size:1.5rem;
-    }
-    .slot-name {
-      font-size:0.75rem; color:#c0c8e0;
-      text-align:center; padding:0 8px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    }
-    .slot-count {
-      position:absolute; top:8px; right:8px;
-      background:rgba(106,123,255,0.9);
-      padding:3px 8px; border-radius:20px;
-      color:#fff; font-size:0.8rem; font-weight:600;
-      min-width:26px; text-align:center;
-    }
-
-    .inventory-footer {
-      display:flex; justify-content:space-between; align-items:center;
-      padding:15px 24px;
-      background:rgba(30,33,40,0.9);
-      border-top:1px solid rgba(60,65,80,0.5);
-    }
-    .instructions { color:#9098b0; font-size:0.85rem; }
-    .action-buttons { display:flex; gap:12px; }
-
-    .inv-btn {
-      display:flex; align-items:center; gap:8px;
-      padding:8px 18px; font-weight:500; font-size:0.95rem;
-      color:#d0d8f0; background:rgba(60,65,80,0.8);
-      border:1px solid rgba(80,85,100,0.4); border-radius:6px;
-      cursor:pointer; transition:all .2s;
-    }
-    .inv-btn:hover { background:rgba(80,90,120,0.8); }
-    .btn-close { background:rgba(180,70,70,0.8); }
-    .btn-close:hover { background:rgba(200,80,80,0.9); }
-
-    #ctxMenu {
-      position:absolute; display:none; z-index:1000;
-      background:rgba(35,40,50,0.95);
-      border:1px solid rgba(90,100,150,0.6);
-      border-radius:8px; backdrop-filter:blur(5px);
-      overflow:hidden; min-width:150px;
-    }
-    #ctxMenu .item {
-      display:flex; align-items:center; gap:10px;
-      padding:12px 20px; font-size:0.95rem; color:#d0d8f0;
-      cursor:pointer; transition:all .2s;
-    }
-    #ctxMenu .item:hover { background:rgba(65,75,105,0.8); color:#fff; }
-
-    /* ----- SHOP UI: match inventory style ----- */
-    #shop {
+    #inventory, #shop {
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 740px;
-      height: 520px;
-      background: rgba(20,22,27,0.95);
-      border: 1px solid rgba(80,85,100,0.4);
-      border-radius: 12px;
-      box-shadow: 0 15px 30px rgba(0,0,0,0.6);
+      width: 760px;
+      height: 560px;
+      background: rgba(20, 22, 27, 0.96);
+      border: 1px solid rgba(80, 85, 100, 0.4);
+      border-radius: 14px;
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.55);
       display: flex;
       flex-direction: column;
-      z-index: 100;
+      overflow: hidden;
     }
-    #shop.hidden { display: none !important; }
-    #shop .items-grid {
+
+    #inventory.with-secondary {
+      width: 1120px;
+    }
+
+    .inventory-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 22px;
+      background: rgba(30, 33, 40, 0.92);
+      border-bottom: 1px solid rgba(60, 65, 80, 0.5);
+    }
+
+    .inventory-header h2 {
+      color: #e7ebf7;
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .player-info {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .info-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      background: rgba(40, 45, 55, 0.72);
+      border: 1px solid rgba(70, 75, 90, 0.42);
+      border-radius: 8px;
+      color: #a9b3cf;
+      font-size: 0.9rem;
+    }
+
+    .info-box i { color: #6a7bff; font-size: 1rem; }
+    .info-value { font-weight: 700; color: #edf1ff; }
+
+    .inventory-content {
       flex: 1;
-      padding: 20px;
+      display: flex;
+      min-height: 0;
+    }
+
+    .categories {
+      width: 148px;
+      background: rgba(25, 28, 35, 0.92);
+      border-right: 1px solid rgba(60, 65, 80, 0.5);
+      padding-top: 14px;
+    }
+
+    .category {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 18px;
+      color: #a0a8c0;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: all .16s ease;
+      position: relative;
+    }
+
+    .category:hover { background: rgba(45, 50, 65, 0.45); color: #d7def3; }
+    .category.active { background: rgba(55, 60, 80, 0.7); color: #fff; }
+    .category.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: #6a7bff;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .panels {
+      flex: 1;
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .inventory-panel {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: rgba(28, 31, 39, 0.5);
+      border: 1px solid rgba(70, 75, 90, 0.26);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: rgba(31, 34, 42, 0.85);
+      border-bottom: 1px solid rgba(60, 65, 80, 0.38);
+      color: #d8def0;
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .panel-sub {
+      font-size: 0.82rem;
+      color: #9ea7c2;
+      font-weight: 600;
+    }
+
+    .items-grid {
+      flex: 1;
+      padding: 16px;
       overflow-y: auto;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-      grid-gap: 15px;
+      grid-template-columns: repeat(auto-fill, minmax(102px, 1fr));
+      gap: 14px;
+      min-height: 0;
     }
 
-    ::-webkit-scrollbar { width:8px; }
-    ::-webkit-scrollbar-track { background:rgba(30,33,40,0.3); border-radius:4px; }
-    ::-webkit-scrollbar-thumb { background:rgba(90,100,150,0.5); border-radius:4px; }
-    ::-webkit-scrollbar-thumb:hover { background:rgba(106,123,255,0.7); }
+    .slot {
+      background: rgba(35, 40, 50, 0.7);
+      border: 1px solid rgba(70, 75, 90, 0.42);
+      border-radius: 10px;
+      min-height: 112px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease, border-color .16s ease;
+      padding: 8px;
+    }
+
+    .slot:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.25);
+      background: rgba(45, 50, 65, 0.82);
+      border-color: rgba(100, 110, 160, 0.6);
+    }
+
+    .slot-img {
+      width: 52px;
+      height: 52px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .slot-img img {
+      max-width: 92%;
+      max-height: 92%;
+      object-fit: contain;
+    }
+
+    .slot-fallback {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(90, 100, 150, 0.2);
+      color: #7a8aff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    .slot-name {
+      width: 100%;
+      text-align: center;
+      color: #c7d0ea;
+      font-size: 0.76rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 4px;
+    }
+
+    .slot-count {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      min-width: 28px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(106, 123, 255, 0.92);
+      color: #fff;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .empty-state {
+      grid-column: 1 / -1;
+      min-height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #8f98b4;
+      font-size: 0.92rem;
+      padding: 24px;
+    }
+
+    .inventory-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 22px;
+      background: rgba(30, 33, 40, 0.92);
+      border-top: 1px solid rgba(60, 65, 80, 0.5);
+    }
+
+    .instructions {
+      color: #98a2bf;
+      font-size: 0.87rem;
+      line-height: 1.3;
+    }
+
+    .action-buttons { display: flex; gap: 10px; }
+
+    .inv-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 16px;
+      font-size: 0.94rem;
+      font-weight: 700;
+      color: #dbe3fb;
+      background: rgba(60, 65, 80, 0.82);
+      border: 1px solid rgba(80, 85, 100, 0.4);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .16s ease;
+    }
+
+    .inv-btn:hover { background: rgba(86, 96, 130, 0.85); }
+    .btn-close { background: rgba(180, 70, 70, 0.86); }
+    .btn-close:hover { background: rgba(200, 80, 80, 0.92); }
+
+    #ctxMenu {
+      position: absolute;
+      display: none;
+      z-index: 2000;
+      min-width: 160px;
+      overflow: hidden;
+      border-radius: 10px;
+      background: rgba(28, 32, 40, 0.98);
+      border: 1px solid rgba(96, 110, 166, 0.55);
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(6px);
+    }
+
+    #ctxMenu .item {
+      padding: 12px 16px;
+      color: #dde6ff;
+      font-size: 0.92rem;
+      cursor: pointer;
+      transition: background .12s ease;
+    }
+
+    #ctxMenu .item:hover { background: rgba(68, 80, 122, 0.8); }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: rgba(30, 33, 40, 0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(90, 100, 150, 0.52); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(106, 123, 255, 0.74); }
 
     @font-face {
-      font-family:'Font Awesome'; font-style:normal; font-weight:400;
-      src:url("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/webfonts/fa-solid-900.woff2")
-          format("woff2");
+      font-family: 'Font Awesome';
+      font-style: normal;
+      font-weight: 400;
+      src: url("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/webfonts/fa-solid-900.woff2") format("woff2");
     }
-    .fa { font-family:'Font Awesome'; font-weight:900; }
+
+    .fa { font-family: 'Font Awesome'; font-weight: 900; }
     .fa-user:before{content:"\f007"} .fa-weight:before{content:"\f496"}
     .fa-box:before{content:"\f466"} .fa-utensils:before{content:"\f2e7"}
     .fa-pills:before{content:"\f484"} .fa-tools:before{content:"\f7d9"}
     .fa-archive:before{content:"\f187"} .fa-times:before{content:"\f00d"}
-    .fa-search:before{content:"\f002"} .fa-filter:before{content:"\f0b0"}
-    .fa-cube:before{content:"\f1b2"} .fa-share:before{content:"\f064"}
-    .fa-info-circle:before{content:"\f05a"} .fa-trash:before{content:"\f1f8"}
-    .fa-shopping-cart:before{content:"\f07a"}
+    .fa-cube:before{content:"\f1b2"} .fa-shopping-cart:before{content:"\f07a"}
+    .fa-truck:before{content:"\f0d1"} .fa-car:before{content:"\f1b9"}
   </style>
 </head>
 <body>
-
   <div id="inventory" class="hidden">
     <div class="inventory-header">
-      <h2><i class="fa fa-archive"></i> INVENTORY</h2>
+      <h2 id="inventoryTitle"><i class="fa fa-archive"></i> INVENTORY</h2>
       <div class="player-info">
         <div class="info-box">
           <i class="fa fa-user"></i>
-          <span>ID: <span class="info-value" id="playerId">---</span></span>
+          <span id="headerOwnerPrefix">ID:</span> <span class="info-value" id="playerId">---</span>
         </div>
         <div class="info-box">
           <i class="fa fa-weight"></i>
@@ -209,42 +351,37 @@
 
     <div class="inventory-content">
       <div class="categories">
-        <div class="category active" data-category="all">
-          <i class="fa fa-box"></i> All
+        <div class="category active" data-category="all"><i class="fa fa-box"></i> All</div>
+        <div class="category" data-category="weapons"><i class="fa fa-cube"></i> Weapons</div>
+        <div class="category" data-category="food"><i class="fa fa-utensils"></i> Food</div>
+        <div class="category" data-category="medical"><i class="fa fa-pills"></i> Medical</div>
+        <div class="category" data-category="tools"><i class="fa fa-tools"></i> Tools</div>
+        <div class="category" data-category="misc"><i class="fa fa-archive"></i> Misc</div>
+      </div>
+
+      <div class="panels">
+        <div class="inventory-panel" id="primaryPanel">
+          <div class="panel-header">
+            <span>Your Items</span>
+            <span class="panel-sub" id="primaryPanelSub">Ready</span>
+          </div>
+          <div class="items-grid" id="slots"></div>
         </div>
-        <div class="category" data-category="weapons">
-          <i class="fa fa-cube"></i> Weapons
-        </div>
-        <div class="category" data-category="food">
-          <i class="fa fa-utensils"></i> Food
-        </div>
-        <div class="category" data-category="medical">
-          <i class="fa fa-pills"></i> Medical
-        </div>
-        <div class="category" data-category="tools">
-          <i class="fa fa-tools"></i> Tools
-        </div>
-        <div class="category" data-category="misc">
-          <i class="fa fa-archive"></i> Misc
+
+        <div class="inventory-panel hidden" id="secondaryPanel">
+          <div class="panel-header">
+            <span id="secondaryTitle">Storage</span>
+            <span class="panel-sub" id="secondaryWeightDisplay">0/0 kg</span>
+          </div>
+          <div class="items-grid" id="secondarySlots"></div>
         </div>
       </div>
-      <div class="items-grid" id="slots"></div>
     </div>
 
     <div class="inventory-footer">
-      <div class="instructions">
-        Left-click = Use • Right-click = Options • ESC = Close
-      </div>
+      <div class="instructions" id="inventoryInstructions">Left-click = Use • Right-click = Options • ESC = Close</div>
       <div class="action-buttons">
-        <button class="inv-btn" id="searchBtn">
-          <i class="fa fa-search"></i> Search
-        </button>
-        <button class="inv-btn" id="filterBtn">
-          <i class="fa fa-filter"></i> Filter
-        </button>
-        <button class="inv-btn btn-close" id="closeBtn">
-          <i class="fa fa-times"></i> Close
-        </button>
+        <button class="inv-btn btn-close" id="closeBtn"><i class="fa fa-times"></i> Close</button>
       </div>
     </div>
   </div>
@@ -265,9 +402,7 @@
     <div class="inventory-footer">
       <div class="instructions">Left-click = Buy • ESC = Close</div>
       <div class="action-buttons">
-        <button class="inv-btn btn-close" id="shopCloseBtn">
-          <i class="fa fa-times"></i> Close
-        </button>
+        <button class="inv-btn btn-close" id="shopCloseBtn"><i class="fa fa-times"></i> Close</button>
       </div>
     </div>
   </div>
@@ -276,38 +411,66 @@
 
 <script>
 (() => {
-  // Resource name
-  const RNAME = typeof GetParentResourceName === 'function'
-    ? GetParentResourceName()
-    : 'UNKNOWN_RESOURCE';
-  console.log('[UI] Resource name →', RNAME);
-
-  // State
-  let inventory = {}, defs = {}, currentSlot = null, currentCat = 'all';
-
-  // Weapon image config
+  const RNAME = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'UNKNOWN_RESOURCE';
   const WEAPON_BASE = 'https://docs.fivem.net/weapons/';
 
-  function isWeaponItem(itemKey, def) {
-    const k = String(itemKey || '').toLowerCase();
-    const cat = String(def?.category || '').toLowerCase();
-    return cat === 'weapons' || k.startsWith('weapon_') || !!def?.weaponName;
+  const state = {
+    inventory: {},
+    defs: {},
+    currentCat: 'all',
+    currentSlot: null,
+    currentSide: 'primary',
+    mode: 'inventory', // inventory | vehicle | other
+    playerId: '---',
+    ownerLabel: 'ID',
+    weight: 0,
+    maxWeight: 0,
+    secondaryInventory: {},
+    secondaryMeta: null,
+    secondaryWeight: 0,
+    secondaryMaxWeight: 0,
+  };
+
+  const el = {
+    inventory: document.getElementById('inventory'),
+    inventoryTitle: document.getElementById('inventoryTitle'),
+    headerOwnerPrefix: document.getElementById('headerOwnerPrefix'),
+    playerId: document.getElementById('playerId'),
+    weightDisplay: document.getElementById('weightDisplay'),
+    primaryPanelSub: document.getElementById('primaryPanelSub'),
+    secondaryPanel: document.getElementById('secondaryPanel'),
+    secondaryTitle: document.getElementById('secondaryTitle'),
+    secondaryWeightDisplay: document.getElementById('secondaryWeightDisplay'),
+    inventoryInstructions: document.getElementById('inventoryInstructions'),
+    slots: document.getElementById('slots'),
+    secondarySlots: document.getElementById('secondarySlots'),
+    shop: document.getElementById('shop'),
+    shopName: document.getElementById('shopName'),
+    shopItems: document.getElementById('shopItems'),
+    ctx: document.getElementById('ctxMenu'),
+  };
+
+  function post(endpoint, payload = {}) {
+    return fetch(`https://${RNAME}/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(err => console.error(`[Az-Inventory UI] ${endpoint} failed`, err));
   }
 
-  // Converts:
-  //  - def.weaponName "WEAPON_PISTOL" -> "WEAPON_PISTOL"
-  //  - item "weapon_pistol" -> "WEAPON_PISTOL"
-  //  - item "pistol" (only if category weapons) -> "WEAPON_PISTOL"
+  function isWeaponItem(itemKey, def) {
+    const key = String(itemKey || '').toLowerCase();
+    const cat = String(def?.category || '').toLowerCase();
+    return cat === 'weapons' || key.startsWith('weapon_') || !!def?.weaponName;
+  }
+
   function toWeaponAssetName(itemKey, def) {
-    let w = (def?.weaponName || itemKey || '').toString().trim();
-    if (!w) return null;
-
-    if (/^WEAPON_/i.test(w)) return w.toUpperCase();
-
-    w = w.toLowerCase();
-    if (w.startsWith('weapon_')) return w.toUpperCase();
-
-    return ('WEAPON_' + w).toUpperCase();
+    let value = (def?.weaponName || itemKey || '').toString().trim();
+    if (!value) return null;
+    if (/^WEAPON_/i.test(value)) return value.toUpperCase();
+    value = value.toLowerCase();
+    if (value.startsWith('weapon_')) return value.toUpperCase();
+    return `WEAPON_${value}`.toUpperCase();
   }
 
   function fallbackBubbleText(key) {
@@ -315,17 +478,17 @@
       .replace(/_/g, ' ')
       .split(' ')
       .filter(Boolean)
-      .map(w => w[0])
+      .map(word => word[0])
       .join('')
-      .substr(0, 2)
-      .toUpperCase();
+      .substring(0, 2)
+      .toUpperCase() || '?';
   }
 
   function makeFallbackBubble(text) {
-    const fb = document.createElement('div');
-    fb.className = 'slot-fallback';
-    fb.textContent = text;
-    return fb;
+    const node = document.createElement('div');
+    node.className = 'slot-fallback';
+    node.textContent = text;
+    return node;
   }
 
   function trySetImage(container, primarySrc, altSrc, fallbackText) {
@@ -333,7 +496,6 @@
     img.alt = fallbackText || '';
     img.loading = 'lazy';
     img.referrerPolicy = 'no-referrer';
-
     img.onerror = () => {
       if (altSrc && img.src !== altSrc) {
         img.src = altSrc;
@@ -342,183 +504,253 @@
       container.innerHTML = '';
       container.append(makeFallbackBubble(fallbackText));
     };
-
     img.src = primarySrc;
     container.append(img);
   }
 
-  // Render inventory slots
-  function renderSlots() {
-    const slots = document.getElementById('slots');
-    slots.innerHTML = '';
+  function itemDef(item) {
+    return state.defs[item] || {};
+  }
 
-    for (const [item, count] of Object.entries(inventory)) {
-      if (count <= 0) continue;
+  function matchesCategory(item) {
+    if (state.currentCat === 'all') return true;
+    return String(itemDef(item).category || 'misc') === state.currentCat;
+  }
 
-      const def = defs[item] || {};
-      const cat = def.category || 'misc';
-      if (currentCat !== 'all' && cat !== currentCat) continue;
+  function renderGrid(grid, items, side) {
+    grid.innerHTML = '';
 
+    const entries = Object.entries(items || {})
+      .filter(([item, count]) => Number(count) > 0 && matchesCategory(item))
+      .sort((a, b) => String(itemDef(a[0]).label || a[0]).localeCompare(String(itemDef(b[0]).label || b[0])));
+
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = side === 'secondary'
+        ? (state.mode === 'vehicle' ? 'Storage is empty.' : 'Nothing to show.')
+        : 'No items in this category.';
+      grid.append(empty);
+      return;
+    }
+
+    for (const [item, count] of entries) {
+      const def = itemDef(item);
       const slot = document.createElement('div');
       slot.className = 'slot';
       slot.dataset.item = item;
+      slot.dataset.side = side;
 
-      // image / fallback with weapon auto-resolution
       const imgC = document.createElement('div');
       imgC.className = 'slot-img';
-
-      const fbText = fallbackBubbleText(item);
+      const fallback = fallbackBubbleText(item);
       const weaponAsset = isWeaponItem(item, def) ? toWeaponAssetName(item, def) : null;
       const weaponUrl = weaponAsset ? `${WEAPON_BASE}${weaponAsset}.png` : null;
 
       if (def.imageUrl) {
-        // explicit imageUrl wins; fallback to docs weapon, then local def.image
-        trySetImage(imgC, def.imageUrl, weaponUrl || (def.image ? `img/${def.image}` : null), fbText);
+        trySetImage(imgC, def.imageUrl, weaponUrl || (def.image ? `img/${def.image}` : null), fallback);
       } else if (weaponUrl) {
-        // weapon auto image; fallback to local def.image
-        trySetImage(imgC, weaponUrl, def.image ? `img/${def.image}` : null, fbText);
+        trySetImage(imgC, weaponUrl, def.image ? `img/${def.image}` : null, fallback);
       } else if (def.image) {
-        // local image
-        trySetImage(imgC, `img/${def.image}`, null, fbText);
+        trySetImage(imgC, `img/${def.image}`, null, fallback);
       } else {
-        imgC.append(makeFallbackBubble(fbText));
+        imgC.append(makeFallbackBubble(fallback));
       }
 
-      slot.append(imgC);
-
-      // name & count
       const nameEl = document.createElement('div');
       nameEl.className = 'slot-name';
       nameEl.textContent = def.label || item;
-      slot.append(nameEl);
 
-      const cnt = document.createElement('div');
-      cnt.className = 'slot-count';
-      cnt.textContent = count;
-      slot.append(cnt);
+      const countEl = document.createElement('div');
+      countEl.className = 'slot-count';
+      countEl.textContent = count;
 
-      slots.append(slot);
+      slot.append(imgC, nameEl, countEl);
+      grid.append(slot);
     }
   }
 
-  // Inventory message handler
-  window.addEventListener('message', e => {
-    const d = e.data;
-    if (d.defs) defs = d.defs;
+  function updateChrome() {
+    const hasSecondary = !!state.secondaryMeta;
+    el.inventory.classList.toggle('with-secondary', hasSecondary);
+    el.secondaryPanel.classList.toggle('hidden', !hasSecondary);
 
-    if (d.playerId !== undefined) {
-      document.getElementById('playerId').textContent = d.playerId;
+    el.playerId.textContent = state.playerId ?? '---';
+    el.weightDisplay.textContent = `${Number(state.weight || 0).toFixed(1)}/${Number(state.maxWeight || 0).toFixed(1)} kg`;
+
+    if (state.mode === 'vehicle' && state.secondaryMeta) {
+      el.inventoryTitle.innerHTML = `<i class="fa ${state.secondaryMeta.kind === 'glovebox' ? 'fa-car' : 'fa-truck'}"></i> VEHICLE STORAGE`;
+      el.headerOwnerPrefix.textContent = 'ID:';
+      el.primaryPanelSub.textContent = 'Click an item to move 1 into storage';
+      el.secondaryTitle.textContent = state.secondaryMeta.label || 'Storage';
+      el.secondaryWeightDisplay.textContent = `${Number(state.secondaryWeight || 0).toFixed(1)}/${Number(state.secondaryMaxWeight || 0).toFixed(1)} kg`;
+      el.inventoryInstructions.textContent = 'Left-click = Move 1 item • Right-click = Quick action • ESC = Close';
+    } else if (state.mode === 'other') {
+      el.inventoryTitle.innerHTML = '<i class="fa fa-archive"></i> PLAYER INVENTORY';
+      el.headerOwnerPrefix.textContent = `${state.ownerLabel || 'Player'}:`;
+      el.primaryPanelSub.textContent = 'Read-only view';
+      el.inventoryInstructions.textContent = 'Read-only view • ESC = Close';
+    } else {
+      el.inventoryTitle.innerHTML = '<i class="fa fa-archive"></i> INVENTORY';
+      el.headerOwnerPrefix.textContent = 'ID:';
+      el.primaryPanelSub.textContent = 'Left-click an item to use it';
+      el.inventoryInstructions.textContent = 'Left-click = Use • Right-click = Options • ESC = Close';
     }
-    if (typeof d.weight === 'number' && typeof d.maxWeight === 'number') {
-      document.getElementById('weightDisplay').textContent =
-        `${d.weight.toFixed(1)}/${d.maxWeight.toFixed(1)} kg`;
-    }
+  }
 
-    if (d.action === 'show' || d.action === 'updateItems') {
-      inventory = d.items || {};
-      document.getElementById('inventory').classList.remove('hidden');
-      renderSlots();
-    } else if (d.action === 'hide') {
-      document.getElementById('inventory').classList.add('hidden');
-      hideCtx();
-    }
-  });
+  function renderInventory() {
+    updateChrome();
+    renderGrid(el.slots, state.inventory, 'primary');
+    if (state.secondaryMeta) renderGrid(el.secondarySlots, state.secondaryInventory, 'secondary');
+  }
 
-  // Category switching
-  document.querySelectorAll('.category').forEach(catEl => {
-    catEl.addEventListener('click', () => {
-      document.querySelectorAll('.category').forEach(c => c.classList.remove('active'));
-      catEl.classList.add('active');
-      currentCat = catEl.dataset.category;
-      renderSlots();
-    });
-  });
+  function showInventory() {
+    el.inventory.classList.remove('hidden');
+    renderInventory();
+  }
 
-  // Inventory click / contextmenu
-  const invGrid = document.getElementById('slots');
+  function hideInventory() {
+    el.inventory.classList.add('hidden');
+    state.mode = 'inventory';
+    state.secondaryInventory = {};
+    state.secondaryMeta = null;
+    state.secondaryWeight = 0;
+    state.secondaryMaxWeight = 0;
+    hideCtx();
+  }
 
-  invGrid.addEventListener('click', e => {
-    const slot = e.target.closest('.slot');
-    if (!slot) return;
-    const item = slot.dataset.item;
-    fetch(`https://${RNAME}/useItem`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ item })
-    }).catch(err => console.error('[inv UI] useItem error →', err));
-  });
-
-  invGrid.addEventListener('contextmenu', e => {
-    const slot = e.target.closest('.slot');
-    if (!slot) return;
-    e.preventDefault();
-    currentSlot = slot.dataset.item;
-    const def = defs[currentSlot] || {};
-    buildCtx(def.options?.buttons || def.buttons || []);
-    showCtx(e.clientX, e.clientY);
-  });
-
-  // Context menu helpers
-  function buildCtx(btns) {
-    const ctx = document.getElementById('ctxMenu');
+  function buildCtx(slotItem, side) {
+    const ctx = el.ctx;
     ctx.innerHTML = '';
+    const def = itemDef(slotItem);
 
-    btns.forEach(b => {
-      const el = document.createElement('div');
-      el.className = 'item';
-      el.textContent = b.label;
-      el.addEventListener('click', () => {
-        fetch(`https://${RNAME}/buttonAction`, {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ slot: currentSlot, actionKey: b.actionKey })
-        }).catch(err => console.error('[inv UI] buttonAction error →', err));
+    const addAction = (label, endpoint, payload) => {
+      const node = document.createElement('div');
+      node.className = 'item';
+      node.textContent = label;
+      node.addEventListener('click', () => {
+        post(endpoint, payload);
         hideCtx();
       });
-      ctx.append(el);
-    });
+      ctx.append(node);
+    };
 
-    // Always add Use/Drop as fallback
-    [['Use','useItem'],['Drop','dropItem']].forEach(([lbl,evt]) => {
-      const el = document.createElement('div');
-      el.className = 'item';
-      el.textContent = lbl;
-      el.addEventListener('click', () => {
-        fetch(`https://${RNAME}/${evt}`, {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ item: currentSlot, qty: 1 })
-        }).catch(err => console.error(`[inv UI] ${evt} error →`, err));
+    if (state.mode === 'vehicle') {
+      if (side === 'primary') {
+        addAction('Store 1', 'storageDeposit', { item: slotItem, qty: 1 });
+      } else {
+        addAction('Take 1', 'storageWithdraw', { item: slotItem, qty: 1 });
+      }
+      return;
+    }
+
+    if (state.mode === 'other') {
+      const node = document.createElement('div');
+      node.className = 'item';
+      node.textContent = 'Read only';
+      ctx.append(node);
+      return;
+    }
+
+    for (const button of (def.options?.buttons || def.buttons || [])) {
+      const node = document.createElement('div');
+      node.className = 'item';
+      node.textContent = button.label;
+      node.addEventListener('click', () => {
+        post('buttonAction', { slot: slotItem, actionKey: button.actionKey });
         hideCtx();
       });
-      ctx.append(el);
-    });
+      ctx.append(node);
+    }
+
+    addAction('Use', 'useItem', { item: slotItem });
+    addAction('Drop 1', 'dropItem', { item: slotItem, qty: 1 });
   }
 
   function showCtx(x, y) {
-    const ctx = document.getElementById('ctxMenu');
-    ctx.style.top = `${y}px`;
-    ctx.style.left = `${x}px`;
-    ctx.style.display = 'block';
-  }
-  function hideCtx() {
-    const ctx = document.getElementById('ctxMenu');
-    ctx.style.display = 'none';
-    currentSlot = null;
+    el.ctx.style.left = `${x}px`;
+    el.ctx.style.top = `${y}px`;
+    el.ctx.style.display = 'block';
   }
 
-  // Close button
-  document.getElementById('closeBtn').addEventListener('click', () => {
-    fetch(`https://${RNAME}/close`, { method: 'POST' }).catch(()=>{});
+  function hideCtx() {
+    el.ctx.style.display = 'none';
+    state.currentSlot = null;
+    state.currentSide = 'primary';
+  }
+
+  function handleSlotPrimaryClick(item) {
+    if (state.mode === 'vehicle') {
+      post('storageDeposit', { item, qty: 1 });
+      return;
+    }
+    if (state.mode === 'other') return;
+    post('useItem', { item });
+  }
+
+  function handleSlotSecondaryClick(item) {
+    if (state.mode === 'vehicle') {
+      post('storageWithdraw', { item, qty: 1 });
+    }
+  }
+
+  document.querySelectorAll('.category').forEach(node => {
+    node.addEventListener('click', () => {
+      document.querySelectorAll('.category').forEach(other => other.classList.remove('active'));
+      node.classList.add('active');
+      state.currentCat = node.dataset.category || 'all';
+      renderInventory();
+    });
   });
 
-  // Shop rendering
-  function renderShop(shop) {
-    document.getElementById('shopName').textContent = shop.name || 'Shop';
-    const grid = document.getElementById('shopItems');
-    grid.innerHTML = '';
+  el.slots.addEventListener('click', event => {
+    const slot = event.target.closest('.slot');
+    if (!slot) return;
+    handleSlotPrimaryClick(slot.dataset.item);
+  });
 
-    (shop.items || []).forEach(it => {
+  el.secondarySlots.addEventListener('click', event => {
+    const slot = event.target.closest('.slot');
+    if (!slot) return;
+    handleSlotSecondaryClick(slot.dataset.item);
+  });
+
+  document.addEventListener('contextmenu', event => {
+    const slot = event.target.closest('.slot');
+    if (!slot) return;
+    event.preventDefault();
+    state.currentSlot = slot.dataset.item;
+    state.currentSide = slot.dataset.side || 'primary';
+    buildCtx(state.currentSlot, state.currentSide);
+    showCtx(event.clientX, event.clientY);
+  });
+
+  document.addEventListener('click', event => {
+    if (!event.target.closest('#ctxMenu') && !event.target.closest('.slot')) hideCtx();
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' || event.key === 'Esc') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!el.shop.classList.contains('hidden')) {
+        post('closeUI');
+      } else if (!el.inventory.classList.contains('hidden')) {
+        post('close');
+      } else {
+        hideCtx();
+      }
+    }
+  });
+
+  document.getElementById('closeBtn').addEventListener('click', () => post('close'));
+  document.getElementById('shopCloseBtn').addEventListener('click', () => post('closeUI'));
+
+  function renderShop(shop) {
+    el.shopName.textContent = shop.name || 'Shop';
+    el.shopItems.innerHTML = '';
+
+    for (const it of (shop.items || [])) {
       const slot = document.createElement('div');
       slot.className = 'slot';
       slot.dataset.name = it.name;
@@ -526,90 +758,97 @@
 
       const imgC = document.createElement('div');
       imgC.className = 'slot-img';
-
-      const def = defs[it.name] || {};
-      const fbText = fallbackBubbleText(it.name);
+      const def = itemDef(it.name);
+      const fallback = fallbackBubbleText(it.name);
       const weaponAsset = isWeaponItem(it.name, def) ? toWeaponAssetName(it.name, def) : null;
       const weaponUrl = weaponAsset ? `${WEAPON_BASE}${weaponAsset}.png` : null;
 
       if (def.imageUrl) {
-        trySetImage(imgC, def.imageUrl, weaponUrl || (def.image ? `img/${def.image}` : null), fbText);
+        trySetImage(imgC, def.imageUrl, weaponUrl || (def.image ? `img/${def.image}` : null), fallback);
       } else if (weaponUrl) {
-        trySetImage(imgC, weaponUrl, def.image ? `img/${def.image}` : null, fbText);
+        trySetImage(imgC, weaponUrl, def.image ? `img/${def.image}` : null, fallback);
       } else if (def.image) {
-        trySetImage(imgC, `img/${def.image}`, null, fbText);
+        trySetImage(imgC, `img/${def.image}`, null, fallback);
       } else {
-        imgC.append(makeFallbackBubble(fbText));
+        imgC.append(makeFallbackBubble(fallback));
       }
-
-      slot.append(imgC);
 
       const nameEl = document.createElement('div');
       nameEl.className = 'slot-name';
-      nameEl.textContent = `${(def.label || it.name)} — $${it.price}`;
-      slot.append(nameEl);
+      nameEl.textContent = `${def.label || it.name} — $${it.price}`;
 
-      grid.append(slot);
-    });
+      slot.append(imgC, nameEl);
+      el.shopItems.append(slot);
+    }
   }
 
-  // Shop show/hide messages
-  window.addEventListener('message', e => {
-    const d = e.data;
-    if (d.action === 'showShop') {
-      document.getElementById('shop').classList.remove('hidden');
-      renderShop(d.shop || {});
-    } else if (d.action === 'hideShop') {
-      document.getElementById('shop').classList.add('hidden');
-    }
-  });
-
-  // Shop buy via delegation
-  document.getElementById('shopItems').addEventListener('click', e => {
-    const slot = e.target.closest('.slot');
+  el.shopItems.addEventListener('click', event => {
+    const slot = event.target.closest('.slot');
     if (!slot) return;
-    const name = slot.dataset.name;
-    const price = slot.dataset.price;
-    fetch(`https://${RNAME}/buyItem`, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ name, price })
-    }).catch(err => console.error('[shop UI] buyItem error →', err));
+    post('buyItem', { name: slot.dataset.name, price: slot.dataset.price });
   });
 
-  // Shop close button
-  document.getElementById('shopCloseBtn').addEventListener('click', () => {
-    fetch(`https://${RNAME}/closeUI`, { method: 'POST' }).catch(()=>{});
-  });
+  window.addEventListener('message', event => {
+    const data = event.data || {};
+    if (data.defs) state.defs = data.defs;
 
-  // Single, robust ESC handler (shop first, then inventory)
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' || e.key === 'Esc') {
-      try { e.preventDefault(); e.stopPropagation(); } catch(_) {}
+    if (data.action === 'show' || data.action === 'updateItems') {
+      state.mode = 'inventory';
+      state.playerId = data.playerId ?? state.playerId;
+      state.inventory = data.items || {};
+      state.weight = Number(data.weight || 0);
+      state.maxWeight = Number(data.maxWeight || 0);
+      state.secondaryInventory = {};
+      state.secondaryMeta = null;
+      state.secondaryWeight = 0;
+      state.secondaryMaxWeight = 0;
+      showInventory();
+      return;
+    }
 
-      const shopEl = document.getElementById('shop');
-      const invEl  = document.getElementById('inventory');
+    if (data.action === 'showOtherInventory') {
+      state.mode = 'other';
+      state.ownerLabel = data.ownerName ? 'Player' : 'ID';
+      state.playerId = data.ownerName ? `${data.ownerName} (${data.ownerId ?? '---'})` : (data.playerId ?? '---');
+      state.inventory = data.items || {};
+      state.weight = Number(data.weight || 0);
+      state.maxWeight = Number(data.maxWeight || 0);
+      state.secondaryInventory = {};
+      state.secondaryMeta = null;
+      showInventory();
+      return;
+    }
 
-      const shopVisible = shopEl && !shopEl.classList.contains('hidden');
-      const invVisible  = invEl  && !invEl.classList.contains('hidden');
+    if (data.action === 'showVehicleStorage' || data.action === 'updateVehicleStorage') {
+      state.mode = 'vehicle';
+      state.playerId = data.playerId ?? state.playerId;
+      state.inventory = data.items || {};
+      state.weight = Number(data.weight || 0);
+      state.maxWeight = Number(data.maxWeight || 0);
+      state.secondaryInventory = data.storageItems || {};
+      state.secondaryMeta = data.storageMeta || null;
+      state.secondaryWeight = Number(data.storageWeight || 0);
+      state.secondaryMaxWeight = Number(data.storageMaxWeight || 0);
+      showInventory();
+      return;
+    }
 
-      if (shopVisible) {
-        fetch(`https://${RNAME}/closeUI`, { method: 'POST' }).catch(()=>{});
-      } else if (invVisible) {
-        fetch(`https://${RNAME}/close`, { method: 'POST' }).catch(()=>{});
-      } else {
-        hideCtx();
-      }
+    if (data.action === 'hide') {
+      hideInventory();
+      return;
+    }
+
+    if (data.action === 'showShop') {
+      el.shop.classList.remove('hidden');
+      renderShop(data.shop || {});
+      return;
+    }
+
+    if (data.action === 'hideShop') {
+      el.shop.classList.add('hidden');
     }
   });
-
-  // Hide ctx if you click elsewhere
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('#ctxMenu') && !e.target.closest('.slot')) hideCtx();
-  });
-
 })();
 </script>
-
 </body>
 </html>

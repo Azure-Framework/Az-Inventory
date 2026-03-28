@@ -1,8 +1,3 @@
--- client.lua (Az-Inventory)
--- Inventory client; NUI handling, shop logic, world drops, ox-style keymapping/commands.
--- FIX: F2 opening then instantly closing was caused by BOTH KeyMapping AND Control-index fallback firing.
--- This version uses KeyMapping by default and only uses control-index fallback if Config.Control.UseKeyMapping = false
-
 local RESOURCE = GetCurrentResourceName()
 
 local Items = Items or {}
@@ -11,10 +6,26 @@ local Shops = Shops or {}
 local worldDrops = {}
 local open = false
 local inventory = {}
+local OxSlots = {}
 local currentWeight = 0.0
 local maxWeight = 0.0
+local storageInventory = {}
+local storageWeight = 0.0
+local storageMaxWeight = 0.0
+local currentStorage = nil
 
 local activeRobberyBlips = activeRobberyBlips or {}
+local stashTarget = nil
+local currentWeapon = nil
+
+
+local function emitOxInventorySync()
+  TriggerEvent('ox_inventory:updateInventory', { refresh = true })
+  TriggerEvent('ox_inventory:updateSlots', OxSlots, { player = currentWeight, other = storageWeight })
+  TriggerEvent('ox_inventory:refreshMaxWeight', maxWeight)
+  TriggerEvent('ox_inventory:refreshSlotCount', tonumber(Config.MaxSlots) or 50)
+end
+
 
 -- -----------------------------
 -- Config (defensive defaults)
@@ -224,6 +235,157 @@ local function pushUI(action, meta)
   })
 end
 
+
+local function closeTrackedVehicleDoor()
+  if not currentStorage or currentStorage.kind ~= 'trunk' then return end
+  if not (Config.VehicleStorage and Config.VehicleStorage.CloseTrunkOnClose ~= false) then return end
+  if not currentStorage.vehicleNetId then return end
+
+  local veh = NetToVeh(currentStorage.vehicleNetId)
+  if veh and veh ~= 0 and DoesEntityExist(veh) then
+    SetVehicleDoorShut(veh, 5, false)
+  end
+end
+
+local function clearStorageView(closeDoor)
+  if closeDoor then closeTrackedVehicleDoor() end
+  storageInventory = {}
+  storageWeight = 0.0
+  storageMaxWeight = 0.0
+  currentStorage = nil
+end
+
+local function pushStorageUI(action)
+  if not currentStorage then
+    pushUI(action)
+    return
+  end
+
+  SendNUIMessage({
+    action = action,
+    items = inventory,
+    defs = buildDefs(),
+    playerId = GetPlayerServerId(PlayerId()),
+    weight = currentWeight,
+    maxWeight = maxWeight,
+    storageItems = storageInventory,
+    storageWeight = storageWeight,
+    storageMaxWeight = storageMaxWeight,
+    storageMeta = {
+      kind = currentStorage.kind,
+      plate = currentStorage.plate,
+      label = currentStorage.label,
+    }
+  })
+end
+
+local function normalizePlateText(plate)
+  return tostring(plate or ''):upper():gsub('%s+', '')
+end
+
+local function isVehicleStorageClassBlocked(vehicle)
+  local blocked = (Config.VehicleStorage and Config.VehicleStorage.BlockedClasses) or {}
+  local class = GetVehicleClass(vehicle)
+  return blocked[class] == true
+end
+
+local function getStoragePoint(vehicle, kind)
+  if kind == 'trunk' then
+    local boneIndex = GetEntityBoneIndexByName(vehicle, 'boot')
+    if boneIndex and boneIndex ~= -1 then
+      return GetWorldPositionOfEntityBone(vehicle, boneIndex)
+    end
+    return GetOffsetFromEntityInWorldCoords(vehicle, 0.0, -2.5, 0.2)
+  end
+
+  return GetOffsetFromEntityInWorldCoords(vehicle, 0.0, 1.25, 0.2)
+end
+
+local function findNearbyVehicleForStorage(kind)
+  local ped = PlayerPedId()
+  local pcoords = GetEntityCoords(ped)
+  local maxDist = tonumber((Config.VehicleStorage and Config.VehicleStorage.MaxDistance) or 2.7) or 2.7
+
+  if kind == 'glovebox' and IsPedInAnyVehicle(ped, false) then
+    local veh = GetVehiclePedIsIn(ped, false)
+    if veh and veh ~= 0 then return veh end
+  end
+
+  local bestVeh, bestDist = 0, maxDist + 0.01
+  for _, veh in ipairs(GetGamePool('CVehicle')) do
+    if DoesEntityExist(veh) then
+      local point = getStoragePoint(veh, kind)
+      local dist = #(pcoords - point)
+      if dist <= maxDist and dist < bestDist then
+        bestVeh = veh
+        bestDist = dist
+      end
+    end
+  end
+
+  return bestVeh
+end
+
+local function openVehicleStorage(kind)
+  if not (Config.VehicleStorage and Config.VehicleStorage.Enabled ~= false) then
+    ShowNotification('Vehicle storage is disabled.')
+    return
+  end
+
+  if isShopOpen then
+    SendNUIMessage({ action = 'hideShop' })
+    isShopOpen = false
+    currentShop = nil
+  end
+
+  local ped = PlayerPedId()
+  local veh = findNearbyVehicleForStorage(kind)
+  if not veh or veh == 0 or not DoesEntityExist(veh) then
+    ShowNotification(kind == 'glovebox' and 'No vehicle glovebox nearby.' or 'No vehicle trunk nearby.')
+    return
+  end
+
+  if isVehicleStorageClassBlocked(veh) then
+    ShowNotification(kind == 'glovebox' and 'This vehicle has no glovebox storage.' or 'This vehicle has no trunk storage.')
+    return
+  end
+
+  local lockStatus = GetVehicleDoorLockStatus(veh)
+  local allowTrunk = (lockStatus == 0 or lockStatus == 1 or lockStatus == 8)
+  local allowCabin = (lockStatus == 0 or lockStatus == 1)
+  local insideSameVehicle = IsPedInVehicle(ped, veh, false)
+  if Config.VehicleStorage.RequireUnlocked ~= false then
+    if kind == 'trunk' and not allowTrunk then
+      ShowNotification('Vehicle is locked.')
+      return
+    elseif kind == 'glovebox' and not (allowCabin or insideSameVehicle) then
+      ShowNotification('Vehicle is locked.')
+      return
+    end
+  end
+
+  local plate = normalizePlateText(GetVehicleNumberPlateText(veh))
+  if not plate or plate == '' then
+    ShowNotification('Could not read the vehicle plate.')
+    return
+  end
+
+  if kind == 'trunk' and (Config.VehicleStorage.OpenTrunkDoor ~= false) then
+    SetVehicleDoorOpen(veh, 5, false, false)
+  end
+
+  currentStorage = {
+    kind = kind,
+    plate = plate,
+    label = ((kind == 'glovebox') and 'Glovebox' or 'Trunk') .. ' [' .. plate .. ']',
+    vehicleNetId = VehToNet(veh)
+  }
+
+  open = true
+  SetNuiFocus(true, true)
+  TriggerServerEvent('inventory:openVehicleStorage', { kind = kind, plate = plate })
+end
+
 -- -----------------------------
 -- Shop helpers
 -- -----------------------------
@@ -366,6 +528,7 @@ end)
 
 AddEventHandler('onResourceStop', function(resName)
   if resName ~= RESOURCE then return end
+  closeTrackedVehicleDoor()
   for _, ped in ipairs(spawnedPeds) do
     if DoesEntityExist(ped) then DeleteEntity(ped) end
   end
@@ -486,6 +649,7 @@ RegisterNUICallback('closeUI', function(_, cb)
     currentShop = nil
     SetNuiFocus(false, false)
   else
+    clearStorageView(true)
     pushUI('hide')
     SetNuiFocus(false, false)
     open = false
@@ -499,6 +663,7 @@ end)
 
 -- inventory close alias
 RegisterNUICallback('close', function(_, cb)
+  clearStorageView(true)
   pushUI('hide')
   SetNuiFocus(false, false)
   open = false
@@ -609,6 +774,27 @@ RegisterNUICallback('buttonAction', function(data, cb)
   cb('ok')
 end)
 
+
+RegisterNUICallback('storageDeposit', function(data, cb)
+  if not currentStorage or not data or not data.item then
+    cb({ success = false })
+    return
+  end
+
+  TriggerServerEvent('inventory:transferVehicleStorage', currentStorage.kind, currentStorage.plate, 'deposit', data.item, tonumber(data.qty) or 1)
+  cb({ success = true })
+end)
+
+RegisterNUICallback('storageWithdraw', function(data, cb)
+  if not currentStorage or not data or not data.item then
+    cb({ success = false })
+    return
+  end
+
+  TriggerServerEvent('inventory:transferVehicleStorage', currentStorage.kind, currentStorage.plate, 'withdraw', data.item, tonumber(data.qty) or 1)
+  cb({ success = true })
+end)
+
 -- -----------------------------
 -- Inventory refresh
 -- -----------------------------
@@ -616,7 +802,14 @@ RegisterNetEvent('inventory:refresh', function(inv, w, mw)
   inventory = inv or {}
   currentWeight = w or 0.0
   maxWeight = mw or maxWeight
-  if open then pushUI('updateItems') end
+  if open then
+    if currentStorage then
+      pushStorageUI('updateVehicleStorage')
+    else
+      pushUI('updateItems')
+    end
+  end
+  emitOxInventorySync()
 end)
 
 -- -----------------------------
@@ -757,6 +950,7 @@ CreateThread(function()
                 ShowNotification(('This shop location is closed due to a recent robbery. Reopens in %dm %ds'):format(math.floor(remaining/60), remaining % 60))
               else
                 if open then
+                  clearStorageView(true)
                   pushUI('hide')
                   SetNuiFocus(false, false)
                   open = false
@@ -810,6 +1004,7 @@ CreateThread(function()
     if isShopOpen and not foundAny then
       SendNUIMessage({ action = 'hideShop' })
       if open then
+        clearStorageView(true)
         pushUI('hide')
         open = false
         viewingOther = false
@@ -835,6 +1030,7 @@ CreateThread(function()
           currentShop = nil
         end
         if open then
+          clearStorageView(true)
           pushUI('hide')
           open = false
           viewingOther = false
@@ -866,6 +1062,14 @@ local function _toggleInventory()
     return
   end
 
+  if currentStorage then
+    clearStorageView(true)
+    pushUI('hide')
+    SetNuiFocus(false, false)
+    open = false
+    return
+  end
+
   open = not open
   SetNuiFocus(open, open)
 
@@ -873,6 +1077,7 @@ local function _toggleInventory()
     pushUI('show')
     TriggerServerEvent('inventory:refreshRequest')
   else
+    clearStorageView(true)
     pushUI('hide')
     viewingOther = false
     viewingOwnerId = nil
@@ -913,6 +1118,72 @@ end)
 RegisterNetEvent('inventory:clientClose', function()
   if open then _toggleInventory() end
 end)
+
+RegisterNetEvent('inventory:openSelf', function(inv, w, mw)
+  clearStorageView(false)
+  viewingOther = false
+  viewingOwnerId = nil
+  viewingOwnerName = nil
+  inventory = inv or inventory or {}
+  currentWeight = w or 0.0
+  maxWeight = mw or maxWeight
+  open = true
+  SetNuiFocus(true, true)
+  pushUI('show')
+end)
+
+RegisterNetEvent('inventory:openOther', function(inv, w, mw, ownerId, ownerName)
+  clearStorageView(false)
+  viewingOther = true
+  viewingOwnerId = ownerId
+  viewingOwnerName = ownerName
+  inventory = inv or {}
+  currentWeight = w or 0.0
+  maxWeight = mw or maxWeight
+  open = true
+  SetNuiFocus(true, true)
+  SendNUIMessage({
+    action = 'showOtherInventory',
+    items = inventory,
+    defs = buildDefs(),
+    ownerId = ownerId,
+    ownerName = ownerName,
+    weight = currentWeight,
+    maxWeight = maxWeight,
+    playerId = ownerId,
+  })
+end)
+
+RegisterNetEvent('inventory:vehicleStorageData', function(data)
+  if not data then return end
+
+  inventory = data.playerItems or {}
+  currentWeight = data.playerWeight or 0.0
+  maxWeight = data.playerMaxWeight or maxWeight
+  storageInventory = data.storageItems or {}
+  storageWeight = data.storageWeight or 0.0
+  storageMaxWeight = data.storageMaxWeight or storageMaxWeight
+
+  currentStorage = currentStorage or {}
+  currentStorage.kind = data.kind or currentStorage.kind or 'trunk'
+  currentStorage.plate = data.plate or currentStorage.plate or 'UNKNOWN'
+  currentStorage.label = ((currentStorage.kind == 'glovebox') and 'Glovebox' or 'Trunk') .. ' [' .. tostring(currentStorage.plate) .. ']'
+
+  open = true
+  SetNuiFocus(true, true)
+  pushStorageUI('showVehicleStorage')
+end)
+
+RegisterCommand('aztrunk', function()
+  openVehicleStorage('trunk')
+end, false)
+
+RegisterCommand('azglovebox', function()
+  openVehicleStorage('glovebox')
+end, false)
+
+RegisterKeyMapping('aztrunk', 'Open vehicle trunk storage', 'keyboard', tostring((Config.VehicleStorage and Config.VehicleStorage.DefaultTrunkKey) or 'K'))
+RegisterKeyMapping('azglovebox', 'Open vehicle glovebox storage', 'keyboard', tostring((Config.VehicleStorage and Config.VehicleStorage.DefaultGloveboxKey) or 'L'))
 
 -- -----------------------------
 -- World drops
@@ -978,3 +1249,191 @@ function DrawText3D(x, y, z, text, scale)
   DrawText(0.0, 0.0)
   ClearDrawOrigin()
 end
+
+
+RegisterNetEvent('az_inventory:syncOxSlots', function(slots)
+  OxSlots = slots or {}
+  emitOxInventorySync()
+end)
+
+RegisterNetEvent('inventory:callClientExport', function(exp, key, qty, def)
+  local resourceName, funcName
+  if type(exp) == 'string' then
+    resourceName, funcName = exp:match('^([^:%.]+)[:%.](.+)$')
+  elseif type(exp) == 'table' then
+    resourceName, funcName = exp.resource, exp.func
+  end
+  if not resourceName or not funcName or not exports[resourceName] then return end
+  local slotData
+  for _, slot in pairs(OxSlots or {}) do
+    if slot and slot.name == key then slotData = slot break end
+  end
+  local data = { slot = slotData and slotData.slot or nil, name = key, count = qty }
+  pcall(function()
+    exports[resourceName][funcName](data, slotData)
+  end)
+end)
+
+exports('Search', function(search, item)
+  if search == 'count' then
+    return tonumber(inventory[item] or 0) or 0
+  end
+  return 0
+end)
+
+exports('GetPlayerItems', function()
+  return OxSlots
+end)
+
+exports('GetPlayerWeight', function()
+  return currentWeight or 0.0
+end)
+
+exports('GetPlayerMaxWeight', function()
+  return maxWeight or 0.0
+end)
+
+exports('GetSlotWithItem', function(item)
+  for _, slot in pairs(OxSlots or {}) do
+    if slot and slot.name == item then return slot end
+  end
+end)
+
+exports('GetItemCount', function(item)
+  return tonumber(inventory[item] or 0) or 0
+end)
+
+exports('openInventory', function(invType, data)
+  if invType == 'stash' then
+    TriggerServerEvent('inventory:openStash', tostring(data or ''))
+    return true
+  elseif invType == 'player' then
+    TriggerServerEvent('inventory:requestOpenOther', tonumber(data) or 0)
+    return true
+  end
+  return false
+end)
+
+
+exports('OpenInventory', function(...) return exports[RESOURCE]:openInventory(...) end)
+exports('closeInventory', function()
+  if isShopOpen then
+    SendNUIMessage({ action = 'hideShop' })
+    isShopOpen = false
+    currentShop = nil
+  end
+  clearStorageView(true)
+  if open then
+    open = false
+    SetNuiFocus(false, false)
+    pushUI('hide')
+  end
+  TriggerEvent('ox_inventory:closeInventory')
+  return true
+end)
+exports('openNearbyInventory', function() return false end)
+exports('useItem', function(data, cb)
+  local item = type(data) == 'table' and (data.name or data.item) or data
+  if item then TriggerServerEvent('inventory:useItem', item, 1) end
+  if cb then cb(true) end
+  return true
+end)
+exports('useSlot', function(slot)
+  slot = tonumber(slot)
+  if not slot then return false end
+  local slotData = OxSlots and OxSlots[slot]
+  if slotData and slotData.name then
+    TriggerServerEvent('inventory:useItem', slotData.name, 1)
+    return true
+  end
+  return false
+end)
+exports('GetSlotIdWithItem', function(item)
+  for slotId, slot in pairs(OxSlots or {}) do
+    if slot and slot.name == item then return slotId end
+  end
+end)
+exports('GetSlotsWithItem', function(item)
+  local out = {}
+  for _, slot in pairs(OxSlots or {}) do
+    if slot and slot.name == item then out[#out+1] = slot end
+  end
+  return out
+end)
+exports('Items', function(item)
+  if item then return Items and Items[item] or nil end
+  return Items
+end)
+exports('ItemList', function(item)
+  if item then return Items and Items[item] or nil end
+  return Items
+end)
+exports('getCurrentWeapon', function() return currentWeapon end)
+exports('setStashTarget', function(id, owner) stashTarget = { id = id, owner = owner }; return true end)
+exports('displayMetadata', function(...) return true end)
+exports('notify', function(data)
+  if lib and lib.notify then lib.notify(data) else ShowNotification((data and (data.description or data.title)) or 'Notification') end
+end)
+exports('weaponWheel', function(state) return true end)
+exports('Keyboard', function(fields, cb)
+  if lib and lib.inputDialog then return lib.inputDialog('Input', fields) end
+  return nil
+end)
+exports('Progress', function(options, completed)
+  local result = true
+  if lib and lib.progressBar then result = lib.progressBar(options) end
+  if completed then completed(result) end
+  return result
+end)
+exports('CancelProgress', function() if lib and lib.cancelProgress then lib.cancelProgress() end end)
+exports('ProgressActive', function() if lib and lib.progressActive then return lib.progressActive() end return false end)
+exports('giveItemToTarget', function(serverId, slotId, count)
+  return false
+end)
+
+RegisterNetEvent('ox_inventory:openInventory', function(invType, data)
+  exports[RESOURCE]:openInventory(invType, data)
+end)
+RegisterNetEvent('ox_inventory:closeInventory', function()
+  exports[RESOURCE]:closeInventory()
+end)
+RegisterNetEvent('ox_inventory:forceOpenInventory', function(invType, data)
+  exports[RESOURCE]:openInventory(invType, data)
+end)
+RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inv, weight, player)
+  OxSlots = inv or OxSlots or {}
+  currentWeight = weight or currentWeight or 0.0
+  emitOxInventorySync()
+end)
+RegisterNetEvent('ox_inventory:viewInventory', function(left, right)
+  if left and left.type == 'player' and left.id then
+    TriggerServerEvent('inventory:requestOpenOther', tonumber(left.id) or 0)
+  end
+end)
+RegisterNetEvent('ox_inventory:notify', function(data)
+  exports[RESOURCE]:notify(data)
+end)
+RegisterNetEvent('ox_inventory:itemNotify', function(data)
+  exports[RESOURCE]:notify(data)
+end)
+RegisterNetEvent('ox_inventory:disarm', function(noAnim)
+  currentWeapon = nil
+  RemoveAllPedWeapons(PlayerPedId(), true)
+end)
+RegisterNetEvent('ox_inventory:clearWeapons', function()
+  currentWeapon = nil
+  RemoveAllPedWeapons(PlayerPedId(), true)
+end)
+RegisterNetEvent('ox_inventory:inventoryReturned', function(data) end)
+RegisterNetEvent('ox_inventory:inventoryConfiscated', function(message) end)
+RegisterNetEvent('ox_inventory:createDrop', function(dropId, data, owner, slot) end)
+RegisterNetEvent('ox_inventory:removeDrop', function(dropId) end)
+RegisterNetEvent('ox_inventory:refreshMaxWeight', function(data) maxWeight = tonumber(data) or maxWeight end)
+RegisterNetEvent('ox_inventory:refreshSlotCount', function(data) end)
+RegisterNetEvent('ox_inventory:updateSlots', function(items, weights) end)
+RegisterNetEvent('ox_inventory:updateInventory')
+RegisterNetEvent('ox_inventory:currentWeapon', function(weapon) currentWeapon = weapon end)
+RegisterNetEvent('ox_inventory:itemCount', function(item, count)
+  inventory[item] = count
+end)
+RegisterNetEvent('ox_inventory:updateWeaponComponent', function(...) end)
