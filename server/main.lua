@@ -1,7 +1,10 @@
 print(('[Az-Inventory] server loaded (%s)'):format(GetCurrentResourceName()))
 
 
--- Basic DB lib sanity check (this script expects MySQL.Sync.* from oxmysql/mysql-async)
+
+
+
+
 CreateThread(function()
   Wait(0)
   if not MySQL or not MySQL.Sync then
@@ -10,15 +13,15 @@ CreateThread(function()
 end)
 
 local MAX_WEIGHT = 120.0
-local PlayerInv   = {}  -- src → { [item]=count }
-local PlayerW     = {}  -- src → weight
+local PlayerInv   = {}  
+local PlayerW     = {}  
 local Drops       = {}
 local nextDropId  = 1
-local ActiveCharID = {} -- src → charID
+local ActiveCharID = {} 
 local LastDropAt = {}
 local LastPickupAt = {}
 local NOTIFY_EVERYTHING = true
-local PlayerMetadata = {} -- src -> slotId -> { item, metadata }
+local PlayerMetadata = {} 
 local RegisteredStashes = {}
 local HookRegistry = {}
 local RegisteredShops = {}
@@ -64,7 +67,7 @@ local function runHooks(eventName, payload)
   return true
 end
 
--- Load Config (try global, then require)
+
 Config = Config or (pcall(function() return require("config") end) and require("config") or nil) or Config or {}
 Config.RobCooldown = tonumber(Config.RobCooldown or Config.robberyCooldown) or 600
 Config.PersistStates = Config.PersistStates == true
@@ -76,18 +79,18 @@ Config.AntiSpam = Config.AntiSpam or { PerPlayerAttemptCooldown = 5 }
 MAX_WEIGHT = tonumber(Config.MaxWeight) or MAX_WEIGHT
 local DEBUG = Config.Debug == true
 
--- shopState now: shopState[ shopName ] = { closed = { [locIndex] = ts, ... } }
-local shopState = {} -- populated from memory or file if persistence enabled
 
--- attemptRob anti-spam timestamps
-local LastRobAttempt = {} -- src -> unix seconds
+local shopState = {} 
+
+
+local LastRobAttempt = {} 
 
 local computeWeight
 local ensureInv
 local saveItemSlot
 local safeNotify
 
--- Ensure required tables exist
+
 CreateThread(function()
   Wait(500)
   if not MySQL or not MySQL.Sync or not MySQL.Sync.execute then return end
@@ -233,10 +236,10 @@ local function sendVehicleStorageState(src, kind, plate)
 end
 
 
--- NORMALIZE SHOPS (server-side)
+
 local function normalizeVectorLike(v)
   if not v then return nil end
-  -- If it's already a table with x,y,z -> return normalized numbers
+  
   if type(v) == "table" then
     if v.x ~= nil and v.y ~= nil and v.z ~= nil then
       return { x = tonumber(v.x), y = tonumber(v.y), z = tonumber(v.z), w = tonumber(v.w) or 0.0 }
@@ -247,7 +250,7 @@ local function normalizeVectorLike(v)
     return nil
   end
 
-  -- userdata/vector3 vector4: try reading fields in pcall
+  
   if type(v) == "userdata" then
     local ok, _ = pcall(function() return v.x end)
     if ok then
@@ -255,7 +258,7 @@ local function normalizeVectorLike(v)
     end
   end
 
-  -- string fallback: parse only after first '(' to avoid the '3' in "vector3("
+  
   local s = tostring(v)
   local startAt = s:find("%(")
   if startAt then s = s:sub(startAt + 1) end
@@ -272,19 +275,19 @@ end
 local function normalizeShopsTable()
   if not Shops or type(Shops) ~= "table" then return end
   for i, shop in ipairs(Shops) do
-    -- normalize coords (single)
+    
     if shop.coords then
       local n = normalizeVectorLike(shop.coords)
       if n then shop.coords = n end
     end
 
-    -- normalize ped.coords if vector4
+    
     if shop.ped and shop.ped.coords then
       local n = normalizeVectorLike(shop.ped.coords)
       if n then shop.ped.coords = { x = n.x, y = n.y, z = n.z, w = n.w } end
     end
 
-    -- normalize each entry of locations -> table {x,y,z,w}
+    
     if shop.locations and type(shop.locations) == "table" and #shop.locations > 0 then
       local out = {}
       for j, loc in ipairs(shop.locations) do
@@ -292,24 +295,24 @@ local function normalizeShopsTable()
         if n then
           out[#out+1] = n
         else
-          -- keep original if we can't parse (but log)
+          
           print(("[SHOP] normalizeShopsTable: could not parse locations[%d] for shop '%s'"):format(j, tostring(shop.name)))
         end
       end
       shop.locations = out
     end
 
-    -- Ensure radius numeric
+    
     if shop.radius then shop.radius = tonumber(shop.radius) or shop.radius end
   end
-  -- optional: print a short confirmation
+  
   if DEBUG then print(("[SHOP] normalizeShopsTable: normalized %d shops on server"):format(#Shops)) end
 end
 
 
 normalizeShopsTable()
 
--- helper: Notify (uses notify helper if present, falls back to chat)
+
 safeNotify = function(src, msg, opts)
   if not src or not msg then return end
   opts = opts or {}
@@ -331,7 +334,7 @@ safeNotify = function(src, msg, opts)
   end
 end
 
--- Helper: extract Discord ID from identifiers
+
 local function getDiscordFromIdentifiers(src)
   local ids = GetPlayerIdentifiers(src) or {}
   for _, id in ipairs(ids) do
@@ -345,7 +348,7 @@ local function getDiscordFromIdentifiers(src)
   return ""
 end
 
--- Synchronous helper: get keys (discord, char)
+
 local function getPlayerKeysSync(src)
   local discordID = getDiscordFromIdentifiers(src) or ""
   local charID = ""
@@ -364,7 +367,7 @@ end
 
 local function getPlayerKeys(src) return getPlayerKeysSync(src) end
 
--- Compute total carry weight
+
 computeWeight = function(inv)
   local total = 0.0
   for item, cnt in pairs(inv) do
@@ -372,18 +375,18 @@ computeWeight = function(inv)
     if def and def.weight then
       total = total + def.weight * cnt
     else
-      -- fallback: count as 1 weight per unit if no definition
+      
       total = total + (tonumber(cnt) or 0) * 1.0
     end
   end
   return total
 end
 
--- Load player's inventory from DB (synchronous)
+
 local function loadInv(src)
   local discordID, charID = getPlayerKeysSync(src)
   if discordID == "" or charID == "" then
-    -- Preserve any existing in-memory inventory for this source.
+    
     PlayerInv[src] = PlayerInv[src] or {}
     PlayerW[src] = computeWeight(PlayerInv[src])
     return PlayerInv[src]
@@ -770,7 +773,7 @@ AddEventHandler('inventory:transferVehicleStorage', function(kind, plate, direct
   if kind == 'stash' then sendStashState(src, plate) else sendVehicleStorageState(src, kind, plate) end
 end)
 
--- Synchronous save item slot (logs when skipping DB write)
+
 saveItemSlot = function(src, itemKey)
   local inv = ensureInv(src)
   local count = inv[itemKey] or 0
@@ -825,12 +828,12 @@ saveItemSlot = function(src, itemKey)
   end
 end
 
--- Replace the existing isPoliceJob with this version (with debug prints).
--- Supports Config.Police as:
---   - a string: "police" or "police,sheriff"
---   - a table: { "police", "sheriff" }
+
+
+
+
 local function isPoliceJob(job)
-  -- small helper to stringify simple tables for debug output
+  
   local function tableToString(t)
     if type(t) ~= "table" then return tostring(t) end
     local pieces = {}
@@ -848,17 +851,17 @@ local function isPoliceJob(job)
     print("[isPoliceJob] called. job =", (type(job) == "table" and tableToString(job) or tostring(job)))
   end
 
-  -- If the server operator configured Config.Police, prefer that
+  
   if Config and Config.Police then
     if dbg then print("[isPoliceJob] Config.Police present. type:", type(Config.Police), "value:", (type(Config.Police) == "table" and tableToString(Config.Police) or tostring(Config.Police))) end
 
     local cfg = Config.Police
     local allowed = {}
 
-    -- normalize string -> list (comma-separated allowed)
+    
     if type(cfg) == "string" then
       for token in cfg:gmatch("[^,]+") do
-        local t = token:match("^%s*(.-)%s*$") -- trim
+        local t = token:match("^%s*(.-)%s*$") 
         if t and t ~= "" then
           table.insert(allowed, t:lower())
           if dbg then print(("[isPoliceJob] added allowed (from string): %s"):format(t:lower())) end
@@ -880,7 +883,7 @@ local function isPoliceJob(job)
       print("[isPoliceJob] allowed list:", table.concat(allowed, ", "))
     end
 
-    -- helper to test a job value (job may be string or table)
+    
     local function jobMatches(jobVal)
       if not jobVal then
         if dbg then print("[isPoliceJob.jobMatches] jobVal is nil -> false") end
@@ -930,7 +933,7 @@ local function isPoliceJob(job)
     return result
   end
 
-  -- Fallback: existing behaviour (detect 'police' from common job shapes)
+  
   if dbg then print("[isPoliceJob] no Config.Police set -> using fallback behaviour") end
 
   if not job then
@@ -961,12 +964,12 @@ local function isPoliceJob(job)
   return false
 end
 
--- Simple helper: resolve a player's current character ID using only Az-Framework
+
 local function getPlayerCharID(src)
   if not src then return nil end
   src = tonumber(src) or src
 
-  -- 1) Prefer in-memory cache
+  
   if ActiveCharID and ActiveCharID[src] and tostring(ActiveCharID[src]) ~= "" then
     if DEBUG then
       print(("[SHOP] getPlayerCharID: returning ActiveCharID cache for src=%s -> %s"):format(tostring(src), tostring(ActiveCharID[src])))
@@ -974,7 +977,7 @@ local function getPlayerCharID(src)
     return tostring(ActiveCharID[src])
   end
 
-  -- 2) Try Az-Framework export (colon-call) only
+  
   if exports['Az-Framework'] and type(exports['Az-Framework'].GetPlayerCharacter) == 'function' then
     local ok, res = pcall(function() return exports['Az-Framework']:GetPlayerCharacter(src) end)
     if ok and res and tostring(res) ~= "" then
@@ -988,7 +991,7 @@ local function getPlayerCharID(src)
     if DEBUG then print("[SHOP] getPlayerCharID: exports['Az-Framework'].GetPlayerCharacter not available") end
   end
 
-  -- 3) Fallback: cached ActiveCharID (if any) or nil
+  
   if ActiveCharID and ActiveCharID[src] and tostring(ActiveCharID[src]) ~= "" then
     if DEBUG then print(("[SHOP] getPlayerCharID: falling back to ActiveCharID for src=%s -> %s"):format(tostring(src), tostring(ActiveCharID[src]))) end
     return tostring(ActiveCharID[src])
@@ -998,7 +1001,7 @@ local function getPlayerCharID(src)
   return nil
 end
 
--- Simple helper: synchronously fetch a player's job using only Az-Framework
+
 local function getPlayerJobSync(src)
   if not src then return nil end
   src = tonumber(src) or src
@@ -1018,7 +1021,7 @@ local function getPlayerJobSync(src)
   end
 end
 
--- Fixed countOnlineCops() using only the above Az-Framework helpers
+
 local function countOnlineCops()
   local cnt = 0
   local players = GetPlayers() or {}
@@ -1026,7 +1029,7 @@ local function countOnlineCops()
   for _, plyId in ipairs(players) do
     local src = tonumber(plyId) or plyId
 
-    -- Resolve character id (cache or Az-Framework)
+    
     local char = getPlayerCharID(src)
     if DEBUG then print(("[SHOP] countOnlineCops: GetPlayerCharacter for src=%s -> %s"):format(tostring(src), tostring(char))) end
 
@@ -1039,11 +1042,11 @@ local function countOnlineCops()
       goto continue_player_loop
     end
 
-    -- Resolve job using Az-Framework only
+    
     local jobVal = getPlayerJobSync(src)
     if DEBUG then print(("[SHOP] countOnlineCops: getPlayerJob for src=%s -> %s"):format(tostring(src), tostring(jobVal))) end
 
-    -- Normalize jobVal to a string name for isPoliceJob()
+    
     local jobName = nil
     if jobVal then
       if type(jobVal) == "string" then
@@ -1072,9 +1075,9 @@ local function countOnlineCops()
   return cnt
 end
 
--- Fixed notifyPoliceViaAzFramework() using only the above Az-Framework helpers
+
 local function notifyPoliceViaAzFramework(shopName, locIndex, coords, closedUntil, robberSrc)
-  -- Broadcast generic event for any listener
+  
   TriggerClientEvent('shop:robberyAlert', -1, {
     shop = shopName,
     locIndex = locIndex,
@@ -1091,14 +1094,14 @@ local function notifyPoliceViaAzFramework(shopName, locIndex, coords, closedUnti
   for _, plyId in ipairs(GetPlayers()) do
     local src = tonumber(plyId) or plyId
 
-    -- Ensure active character (cache or Az-Framework)
+    
     local char = getPlayerCharID(src)
     if not char or char == "" then
       if DEBUG then print(("[SHOP] notifyPoliceViaAzFramework: skipping src=%s - no active character"):format(tostring(src))) end
       goto continue_notify_loop
     end
 
-    -- Resolve job (Az-Framework only)
+    
     local jobVal = getPlayerJobSync(src)
     if DEBUG then print(("[SHOP] notifyPoliceViaAzFramework: getPlayerJob for src=%s -> %s"):format(tostring(src), tostring(jobVal))) end
 
@@ -1130,7 +1133,7 @@ end
 
 
 
--- Inventory RPCs (preserve in-memory inv when no identifiers)
+
 RegisterNetEvent("inventory:refreshRequest")
 AddEventHandler("inventory:refreshRequest", function()
   local src = source
@@ -1143,7 +1146,7 @@ AddEventHandler("inventory:refreshRequest", function()
 
   local discordID, charID = getPlayerKeysSync(src)
   if discordID == "" or charID == "" then
-    -- Keep any in-memory inventory for the session; do not zero it out.
+    
     if not PlayerInv[src] then
       PlayerInv[src] = {}
       PlayerW[src] = 0.0
@@ -1156,7 +1159,7 @@ AddEventHandler("inventory:refreshRequest", function()
   sendInv(src)
 end)
 
--- giveitem / removeitem / useItem / dropItem / pickupDrop
+
 RegisterCommand("giveitem", function(src, args)
   local target = tonumber(args[1]) or src
   local key    = args[2]
@@ -1195,7 +1198,7 @@ RegisterCommand("removeitem", function(src, args)
   safeNotify(src, ("Removed %d× %s"):format(qty, Items[key] and Items[key].label or key), { type = "success", title = "Inventory" })
 end, false)
 
--- === Deterministic inventory:useItem (server-side) ===
+
 RegisterNetEvent("inventory:useItem")
 AddEventHandler("inventory:useItem", function(key, qty)
   local src = source
@@ -1263,7 +1266,7 @@ AddEventHandler("inventory:useItem", function(key, qty)
     safeNotify(src, ("Used %s"):format((Items[key] and Items[key].label) or key), { type = "inform", title = "Inventory" })
   end
 
-  -- post-use routing: broadcast and call handlers (server-side)
+  
   pcall(function() TriggerEvent('inventory:itemUsed', src, key, qty, def) end)
 
   if def and def.server and def.server.event and type(def.server.event) == 'string' then
@@ -1298,7 +1301,7 @@ AddEventHandler("inventory:useItem", function(key, qty)
     pcall(function() TriggerClientEvent('inventory:callClientExport', src, exp, key, qty, def) end)
   end
 
-  -- === NEW: server-decided weapon give (authoritative) ===
+  
   if def and (def.weaponName or def.weapon) then
     local wname = def.weaponName or def.weapon
     local wammo = tonumber(def.ammo) or tonumber(def.ammoCount) or 0
@@ -1318,7 +1321,7 @@ AddEventHandler("inventory:useItem", function(key, qty)
   end
 end)
 
--- Drop/pickup handlers
+
 RegisterNetEvent("inventory:dropItem")
 AddEventHandler("inventory:dropItem", function(itemKey, x, y, z, qty)
   local src = source
@@ -1393,18 +1396,18 @@ AddEventHandler("inventory:pickupDrop", function(dropId)
   safeNotify(src, ("Picked up %d× %s. (Drop ID: %d)"):format(addCount, d.item, dropId), { type = "success", title = "Inventory" })
 end)
 
--- ===== NEW: shop:buyItem helper and handler =====
 
--- tryChargePlayer: attempts to charge player via common economy exports (Az-Framework, QBCore, ESX).
--- returns true if charged (or if price == 0), false if insufficient funds or no supported economy integration.
+
+
+
 local function tryChargePlayer(src, amount)
   amount = tonumber(amount) or 0
   if amount <= 0 then return true end
 
-  -- 1) Az-Framework (common pattern)
+  
   local ok, res = pcall(function()
     if exports['Az-Framework'] and type(exports['Az-Framework'].RemoveMoney) == 'function' then
-      -- hypothetical API: RemoveMoney(src, amount, account) -> boolean (adjust as needed)
+      
       return exports['Az-Framework']:RemoveMoney(src, amount)
     elseif exports['Az-Framework'] and type(exports['Az-Framework'].removeMoney) == 'function' then
       return exports['Az-Framework']:removeMoney(src, amount)
@@ -1416,12 +1419,12 @@ local function tryChargePlayer(src, amount)
     return true
   end
 
-  -- 2) QBCore
+  
   ok, res = pcall(function()
     if QBCore and QBCore.Functions and QBCore.Functions.GetPlayer then
       local player = QBCore.Functions.GetPlayer(src)
       if player and player.Functions and player.Functions.RemoveMoney then
-        -- try cash then bank
+        
         if player.Functions.RemoveMoney("cash", amount) then return true end
         if player.Functions.RemoveMoney("bank", amount) then return true end
       end
@@ -1439,7 +1442,7 @@ local function tryChargePlayer(src, amount)
     return true
   end
 
-  -- 3) ESX (older)
+  
   ok, res = pcall(function()
     if ESX and ESX.GetPlayerFromId then
       local xPlayer = ESX.GetPlayerFromId(src)
@@ -1450,7 +1453,7 @@ local function tryChargePlayer(src, amount)
           xPlayer.removeMoney(amount)
           return true
         end
-        -- try bank
+        
         if xPlayer.getAccount and xPlayer.getAccount('bank') and xPlayer.getAccount('bank').money and xPlayer.getAccount('bank').money >= amount then
           xPlayer.removeAccountMoney('bank', amount)
           return true
@@ -1464,12 +1467,12 @@ local function tryChargePlayer(src, amount)
     return true
   end
 
-  -- 4) No supported economy found or insufficient funds.
+  
   if DEBUG then print(("[SHOP] tryChargePlayer: no supported economy integration or insufficient funds for src=%s amount=%s"):format(tostring(src), tostring(amount))) end
   return false
 end
 
--- shop:buyItem - client calls with (itemName, price) where price is usually passed by the NUI
+
 RegisterNetEvent("shop:buyItem")
 AddEventHandler("shop:buyItem", function(itemName, price)
   local src = source
@@ -1484,13 +1487,13 @@ AddEventHandler("shop:buyItem", function(itemName, price)
   end
 
   if not Items or not Items[itemName] then
-    -- still allow purchases of any strings? safer to reject
+    
     safeNotify(src, ("Item '%s' not available."):format(itemName), { type = "error", title = "Shop" })
     print(("[SHOP] buyItem: unknown item '%s' requested by src=%s"):format(tostring(itemName), tostring(src)))
     return
   end
 
-  -- load inventory & compute weight
+  
   local inv = ensureInv(src)
   local itemDef = Items[itemName]
   local itemWeight = tonumber(itemDef.weight) or 0
@@ -1503,28 +1506,28 @@ AddEventHandler("shop:buyItem", function(itemName, price)
     return
   end
 
-  -- Attempt to charge player (if price > 0). If tryChargePlayer returns false => insufficient or integration missing
+  
   local charged = true
   if offerPrice and offerPrice > 0 then
     charged = tryChargePlayer(src, offerPrice)
     if not charged then
-      -- If no economy integration, we default to allowing purchase but warn in the log.
-      -- You can uncomment the below to block purchases if not charged:
-      -- safeNotify(src, "Insufficient funds.", { type = "error", title = "Shop" }); return
+      
+      
+      
       print(("[SHOP] buyItem: could not charge src=%s amount=%s. Allowing fallback give (no integration or insufficient funds)"):format(tostring(src), tostring(offerPrice)))
     end
   end
 
-  -- Add item to inventory (in-memory + persist)
+  
   inv[itemName] = (inv[itemName] or 0) + 1
   PlayerInv[src] = inv
   PlayerW[src] = computeWeight(inv)
   saveItemSlot(src, itemName)
 
-  -- immediate client refresh
+  
   sendInv(src)
 
-  -- feedback
+  
   if offerPrice and offerPrice > 0 then
     safeNotify(src, ("You bought %s for $%s"):format(itemDef.label or itemName, tostring(offerPrice)), { type = "success", title = "Shop" })
   else
@@ -1534,10 +1537,10 @@ AddEventHandler("shop:buyItem", function(itemName, price)
   print(("[SHOP] buyItem: src=%s bought %s for %s (charged=%s)"):format(tostring(src), tostring(itemName), tostring(offerPrice), tostring(charged)))
 end)
 
--- === END shop:buyItem ===
 
 
--- ===== PER-LOCATION Shop state persistence helpers =====
+
+
 
 local function ensureShopStateTable(name)
   shopState[name] = shopState[name] or { closed = {} }
@@ -1593,10 +1596,10 @@ local function loadShopStatesFromFile()
   print("[SHOP] Loaded persisted shop states from file")
 end
 
--- Call load on script start (keeps compatibility with existing onResourceStart handler)
+
 loadShopStatesFromFile()
 
--- Broadcast a single location change to all clients (shopName, locIndex, closedUntil or nil)
+
 local function broadcastShopState(shopName, locIndex)
   local state = shopState[shopName]
   local ts = nil
@@ -1606,7 +1609,7 @@ local function broadcastShopState(shopName, locIndex)
   TriggerClientEvent('shop:markRobbed', -1, shopName, locIndex, ts)
 end
 
--- Are specific location closed?
+
 local function isShopClosed(shopName, locIndex)
   local s = shopState[shopName]
   if not s or not s.closed then return false end
@@ -1615,7 +1618,7 @@ local function isShopClosed(shopName, locIndex)
   return ts > os.time()
 end
 
--- Ensure Shops table exists server-side; attempt to require shops.lua if not present
+
 local Shops = Shops or {}
 
 local function tryLoadShopsFile()
@@ -1627,7 +1630,7 @@ local function tryLoadShopsFile()
   end
 end
 
--- vector helpers for server-side distance checks
+
 local function isVectorLike(v)
   if not v then return false end
   if type(v) == "table" then
@@ -1667,7 +1670,7 @@ local function toVecTable(v)
   return nil
 end
 
--- Helper: get array of location vector tables for a shop (server)
+
 local function getShopLocations(shop)
   if not shop then return {} end
   if shop.locations and type(shop.locations) == "table" and #shop.locations > 0 then
@@ -1687,7 +1690,7 @@ local function getShopLocations(shop)
   return {}
 end
 
--- Find a shop by name (case-sensitive)
+
 local function findShopByName(name)
   if not name then return nil end
   tryLoadShopsFile()
@@ -1701,7 +1704,7 @@ local function findShopByName(name)
   return nil
 end
 
--- Debugging helper: print known shops on resource start (server-side)
+
 AddEventHandler('onResourceStart', function(resourceName)
   if resourceName == GetCurrentResourceName() then
     tryLoadShopsFile()
@@ -1717,7 +1720,7 @@ AddEventHandler('onResourceStart', function(resourceName)
   end
 end)
 
--- shop:attemptRob (server-side) — selects nearest location index and closes only that one
+
 RegisterNetEvent('shop:attemptRob')
 AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
   local src = source
@@ -1733,7 +1736,7 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
     return
   end
 
-  -- anti-spam
+  
   local now = os.time()
   LastRobAttempt = LastRobAttempt or {}
   if LastRobAttempt[src] and (now - LastRobAttempt[src]) < (Config.AntiSpam and (Config.AntiSpam.PerPlayerAttemptCooldown or 5) or 5) then
@@ -1742,17 +1745,17 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
   end
   LastRobAttempt[src] = now
 
-  -- cops requirement
+  
   local cops = countOnlineCops and countOnlineCops() or 0
   local required = tonumber(Config.RequiredCops or 0) or 0
   if cops < required then
-    -- Detailed debug output to server console (user requested)
+    
     print(("[SHOP] attemptRob: Not enough police online for src=%s (counted=%d required=%d)"):format(tostring(src), cops, required))
-    -- attempt to list each player's job for debugging
+    
     for _, plyId in ipairs(GetPlayers()) do
       local psrc = tonumber(plyId) or plyId
       local ok, job = pcall(function()
-        -- try common synchronous exports
+        
         if exports['Az-Framework'] and type(exports['Az-Framework'].GetPlayerJob) == 'function' then
           return exports['Az-Framework']:GetPlayerJob(psrc)
         elseif exports['Az-Framework'] and type(exports['Az-Framework'].getPlayerJob) == 'function' then
@@ -1767,7 +1770,7 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
         print(("[SHOP] player %s job (sync) -> %s"):format(tostring(psrc), tostring(job)))
       else
         print(("[SHOP] player %s job (sync) -> <unknown or sync fetch failed>"):format(tostring(psrc)))
-        -- try callback-style fetch if available
+        
         if exports['Az-Framework'] and type(exports['Az-Framework'].getPlayerJob) == 'function' then
           pcall(function()
             exports['Az-Framework']:getPlayerJob(psrc, function(jobCb)
@@ -1782,7 +1785,7 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
     return
   end
 
-  -- parse client coords (if provided)
+  
   local cpx,cpy,cpz = tonumber(px), tonumber(py), tonumber(pz)
   if cpx and cpy and cpz then
     if DEBUG then print(("[SHOP] attemptRob: client coords for src=%s -> %.6f, %.6f, %.6f"):format(tostring(src), cpx, cpy, cpz)) end
@@ -1790,18 +1793,18 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
     if DEBUG then print(("[SHOP] attemptRob: no/invalid client coords provided by src=%s - skipping verbose distance check"):format(tostring(src))) end
   end
 
-  -- compute nearest distance to any defined shop location
+  
   local radius = tonumber(shopDef.radius) or 2.0
   local locs = getShopLocations(shopDef)
   if (not locs) or (#locs == 0) then
-    -- fallback to coords field if locations is empty
+    
     if shopDef.coords and isVectorLike(shopDef.coords) then
       local vt = toVecTable(shopDef.coords)
       if vt then locs = { vt } end
     end
   end
 
-  -- determine nearest location index (if coords provided)
+  
   local chosenIndex = 1
   local nearest = math.huge
   if cpx and cpy and cpz and locs and #locs > 0 then
@@ -1815,7 +1818,7 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
       if d < nearest then nearest = d; chosenIndex = i end
     end
 
-    -- tolerance: use radius + 0.6 (prevents float/heading tiny mismatches)
+    
     local tolerance = (radius or 2.0) + 0.6
     if DEBUG then print(("[SHOP] attemptRob: nearest=%.6f radius=%.3f tolerance=%.3f for src=%s shop=%s chosenIndex=%d"):format(nearest, radius, tolerance, tostring(src), tostring(shopName), chosenIndex)) end
 
@@ -1825,18 +1828,18 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
       return
     end
   else
-    -- no client coords: choose index 1 by default (for shops with single location)
+    
     chosenIndex = 1
     if DEBUG then print(("[SHOP] attemptRob: choosing default locIndex=%d for shop=%s (no client coords)"):format(chosenIndex, tostring(shopName))) end
   end
 
-  -- Check robbable flag on shopDef
+  
   if shopDef.robbable == false then
     safeNotify(src, "This shop cannot be robbed.", { type = "error", title = "Shop" })
     return
   end
 
-  -- Check if chosen location already closed
+  
   if isShopClosed(shopName, chosenIndex) then
     local ts = shopState[shopName] and shopState[shopName].closed and shopState[shopName].closed[chosenIndex] or 0
     local remaining = ts - os.time()
@@ -1844,7 +1847,7 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
     return
   end
 
-  -- passed checks: mark the specific location robbed
+  
   local cooldown = tonumber(shopDef.robCooldown) or tonumber(Config.RobCooldown or 600) or 600
   local closedUntil = os.time() + cooldown
   ensureShopStateTable(shopName)
@@ -1855,9 +1858,9 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
   safeNotify(src, ("Robbery started at %s (location #%d)! The location will be closed for %d seconds."):format(tostring(shopName), chosenIndex, cooldown), { type = "success", title = "Shop" })
   print(("[SHOP] Player %d attempted robbery at shop '%s' locIndex=%d -> closedUntil=%s"):format(src, tostring(shopName), chosenIndex, tostring(closedUntil)))
 
-  -- === POLICE NOTIFICATION ===
+  
   do
-    -- best-effort coords for the alert
+    
     local alertCoords = nil
     if cpx and cpy and cpz then
       alertCoords = { x = cpx, y = cpy, z = cpz }
@@ -1868,12 +1871,12 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
 
     if type(notifyPoliceViaAzFramework) == "function" then
       local ok, err = pcall(function()
-        -- signature: notifyPoliceViaAzFramework(shopName, chosenIndex, coordsTable, closedUntilTs, robberSrc)
+        
         notifyPoliceViaAzFramework(shopName, chosenIndex, alertCoords, closedUntil, src)
       end)
       if not ok then
         print(("[SHOP] notifyPoliceViaAzFramework failed: %s"):format(tostring(err)))
-        -- fallback to generic broadcast below if helper failed
+        
         TriggerClientEvent('shop:robberyAlertPolice', -1, {
           shop = shopName,
           locIndex = chosenIndex,
@@ -1886,7 +1889,7 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
         if DEBUG then print(("[SHOP] notifyPoliceViaAzFramework called for shop '%s' locIndex=%d"):format(tostring(shopName), chosenIndex)) end
       end
     else
-      -- fallback: broadcast generic event to all clients (police-side should filter by job)
+      
       TriggerClientEvent('shop:robberyAlertPolice', -1, {
         shop = shopName,
         locIndex = chosenIndex,
@@ -1897,17 +1900,17 @@ AddEventHandler('shop:attemptRob', function(shopName, px, py, pz)
       print(("[SHOP] fallback: TriggerClientEvent('shop:robberyAlertPolice', -1, ...) sent for shop '%s' locIndex=%d"):format(tostring(shopName), chosenIndex))
     end
   end
-  -- === END POLICE NOTIFICATION ===
+  
 
 end)
 
 
 
--- Admin reopen command - supports reopening a specific locIndex or all locations if no index provided
+
 RegisterCommand("shopreopen", function(source, args)
   local src = source
   local name = args[1]
-  local idx = tonumber(args[2]) -- optional
+  local idx = tonumber(args[2]) 
   if not name then
     if src == 0 then print("Usage: shopreopen <shopName> [locationIndex]") else safeNotify(src, "Usage: /shopreopen <shopName> [locationIndex]", { type = "error", title = "Shop" }) end
     return
@@ -1919,17 +1922,17 @@ RegisterCommand("shopreopen", function(source, args)
     broadcastShopState(name, idx)
     if src == 0 then print(("Shop %s location %d reopened (console)"):format(name, idx)) else safeNotify(src, ("Shop reopened: %s (location %d)"):format(name, idx), { type = "success", title = "Shop" }) end
   else
-    -- reopen all locations
+    
     shopState[name] = nil
     saveShopStatesToFile()
-    -- broadcast nil for index 1..n based on shop locations (best-effort)
+    
     local shopDef = findShopByName(name)
     if shopDef then
       local locs = getShopLocations(shopDef)
       if locs and #locs > 0 then
         for i=1,#locs do broadcastShopState(name, i) end
       else
-        -- fallback: broadcast single nil
+        
         broadcastShopState(name, 1)
       end
     else
@@ -1939,7 +1942,7 @@ RegisterCommand("shopreopen", function(source, args)
   end
 end, false)
 
--- Debug command to list shops (server console)
+
 RegisterCommand("listshops", function(src)
   tryLoadShopsFile()
   if src == 0 then
@@ -1952,7 +1955,7 @@ RegisterCommand("listshops", function(src)
   end
 end, true)
 
--- Provide current states to a client (per-location mapping)
+
 RegisterNetEvent('shop:requestStates')
 AddEventHandler('shop:requestStates', function()
   local src = source
@@ -1971,7 +1974,7 @@ AddEventHandler('shop:requestStates', function()
   TriggerClientEvent('shop:syncStates', src, out)
 end)
 
--- Cleanup on disconnect
+
 AddEventHandler("playerDropped", function(reason)
   local src = source
   PlayerInv[src] = nil
@@ -1979,7 +1982,7 @@ AddEventHandler("playerDropped", function(reason)
   ActiveCharID[src] = nil
 end)
 
--- When a character is selected, merge any in-memory inventory into the DB inventory
+
 RegisterNetEvent('Az-Framework:selectCharacter')
 AddEventHandler('Az-Framework:selectCharacter', function(charID)
   local src = source
@@ -2019,7 +2022,7 @@ AddEventHandler('Az-Framework:selectCharacter', function(charID)
   sendInv(src)
 end)
 
--- Exports
+
 exports('GetPlayerInventory', function(src)
   src = tonumber(src) or source
   return ensureInv(src)
@@ -2069,7 +2072,7 @@ AddEventHandler('inventory:requestOpenOther', function(targetId)
 end)
 
 
--- ox_inventory compatibility shim
+
 exports('Items', function(item)
   if item then return Items and Items[item] or nil end
   return Items

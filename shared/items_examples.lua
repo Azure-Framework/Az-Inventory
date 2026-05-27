@@ -19,7 +19,7 @@ local function notify(text)
   end
 end
 
--- Try multiple exports to apply statuses; returns true if something was applied
+
 local function applyStatus(statusTable)
   if not statusTable or type(statusTable) ~= 'table' then return false end
   local applied = false
@@ -46,7 +46,7 @@ local function applyStatus(statusTable)
     end
   end
 
-  -- Fallback local health change
+  
   local ped = PlayerPedId()
   for k, v in pairs(statusTable) do
     if k == "health" then
@@ -59,7 +59,7 @@ local function applyStatus(statusTable)
   return applied
 end
 
--- NEW playAnim (replace old implementation)
+
 local function playAnim(anim, duration)
   if not anim or type(anim) ~= 'table' or not anim.dict or not anim.clip then return end
   safeCall(function()
@@ -76,18 +76,18 @@ local function playAnim(anim, duration)
       return
     end
 
-    -- Choose a safe default flag: 0 = normal (no loop). If the anim must loop, the caller can pass a flag in anim.flag
+    
     local flag = anim.flag or 0
     local playbackRate = anim.playbackRate or 1.0
 
-    -- TaskPlayAnim signature: (ped, dict, name, blendIn, blendOut, duration(ms), flag, playbackRate, lockX, lockY, lockZ)
+    
     TaskPlayAnim(ped, anim.dict, anim.clip, anim.blendIn or 8.0, anim.blendOut or -8.0, durMs, flag, playbackRate, false, false, false)
 
-    -- If a finite duration was provided, schedule a stop to ensure the animation is cleared.
+    
     if durMs and durMs > 0 then
       Citizen.SetTimeout(durMs + 150, function()
         if DoesEntityExist(ped) then
-          -- Stop the specific anim and clear any leftover secondary tasks
+          
           StopAnimTask(ped, anim.dict, anim.clip, 3.0)
           ClearPedSecondaryTask(ped)
         end
@@ -135,7 +135,7 @@ local function spawnProp(prop, duration)
   end)
 end
 
--- Proper vehicle search helper (returns vehicle entity or nil)
+
 local function findNearestVehicle(maxDist)
   maxDist = tonumber(maxDist) or 3.5
   local ped = PlayerPedId()
@@ -160,9 +160,9 @@ local function findNearestVehicle(maxDist)
   return nil
 end
 
--- Handlers -------------------------------------------------------------------
 
--- Update handlers to pass usetime -> playAnim
+
+
 RegisterNetEvent('bread:clientUse', function(itemName, qty, def)
   local d = def or (Items and Items[itemName]) or {}
   playAnim(d.anim, d.usetime or 2000)
@@ -177,7 +177,7 @@ end)
 
 RegisterNetEvent('bandage:clientUse', function(itemName, qty, def)
   local d = def or (Items and Items[itemName]) or {}
-  -- bandage uses a short anim
+  
   playAnim(d.anim, d.usetime or 1500)
   spawnProp(d.prop, d.usetime or 1500)
   if d.status then
@@ -194,34 +194,34 @@ RegisterNetEvent('medkit:clientUse', function(itemName, qty, def)
   local d = def or (Items and Items[itemName]) or {}
   local useMs = tonumber(d.usetime) or 5000
 
-  -- play animation for the duration (our playAnim stops it)
+  
   playAnim(d.anim, useMs)
 
-  -- spawn a prop attached to player and remove it after useMs
+  
   spawnProp(d.prop, useMs)
 
-  -- If disable flags exist, block relevant controls for the duration
+  
   if d.disable and type(d.disable) == 'table' then
     Citizen.CreateThread(function()
       local endT = GetGameTimer() + useMs + 100
       while GetGameTimer() < endT do
         if d.disable.sprint then
-          DisableControlAction(0, 21, true) -- sprint
+          DisableControlAction(0, 21, true) 
         end
         if d.disable.move then
-          DisableControlAction(0, 30, true) -- move left/right
-          DisableControlAction(0, 31, true) -- move up/down
+          DisableControlAction(0, 30, true) 
+          DisableControlAction(0, 31, true) 
         end
         if d.disable.combat then
-          DisableControlAction(0, 24, true) -- attack
-          DisableControlAction(0, 25, true) -- aim
-          DisableControlAction(0, 45, true) -- reload
+          DisableControlAction(0, 24, true) 
+          DisableControlAction(0, 25, true) 
+          DisableControlAction(0, 45, true) 
         end
-        -- optional: prevent entering vehicles
-        DisableControlAction(0, 75, true) -- exit vehicle (helpful if inside)
+        
+        DisableControlAction(0, 75, true) 
         Citizen.Wait(0)
       end
-      -- Make sure tasks/animations are cleared as a safety net
+      
       local ped = PlayerPedId()
       if DoesEntityExist(ped) then
         if d.anim and d.anim.dict and d.anim.clip then
@@ -232,7 +232,7 @@ RegisterNetEvent('medkit:clientUse', function(itemName, qty, def)
     end)
   end
 
-  -- Apply status / health change
+  
   if d.status then
     applyStatus(d.status)
   else
@@ -275,7 +275,7 @@ local function refuelNearestVehicle(amount)
   end)
   if done then notify("Refueled nearby vehicle."); return true end
 
-  -- fallback: nudge engine health
+  
   local health = GetVehicleEngineHealth(veh)
   SetVehicleEngineHealth(veh, math.min(1000.0, health + (tonumber(amount) or 25) * 5.0))
   notify("Refueled (fallback)")
@@ -321,10 +321,10 @@ RegisterNetEvent('inventory:callClientExport', function(exportSpec, itemName, am
     if exports[resourceName] and type(exports[resourceName][funcName]) == 'function' then
       return exports[resourceName][funcName](itemName, amount, def)
     elseif exports[resourceName] and type(exports[resourceName]) == 'function' then
-      -- Some resources export directly as functions: exports['res'](...)
+      
       return exports[resourceName](funcName, itemName, amount, def)
     else
-      -- fallback event trigger
+      
       TriggerEvent(resourceName .. ":" .. funcName, itemName, amount, def)
     end
   end)

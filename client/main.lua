@@ -1,3 +1,8 @@
+
+
+
+
+
 local RESOURCE = GetCurrentResourceName()
 
 local Items = Items or {}
@@ -27,27 +32,27 @@ local function emitOxInventorySync()
 end
 
 
--- -----------------------------
--- Config (defensive defaults)
--- -----------------------------
+
+
+
 Config = Config or {}
 Config.Debug = Config.Debug or false
 
 Config.Control = Config.Control or {}
-Config.Control.UseKeyMapping = (Config.Control.UseKeyMapping ~= false) -- default true
+Config.Control.UseKeyMapping = (Config.Control.UseKeyMapping ~= false) 
 Config.Control.DefaultKey = Config.Control.DefaultKey or 'F2'
-Config.Control.ToggleInventory = tonumber(Config.Control.ToggleInventory) or 289 -- only used if UseKeyMapping=false
+Config.Control.ToggleInventory = tonumber(Config.Control.ToggleInventory) or 289 
 
 Config.RobCooldown = Config.RobCooldown or 600
 Config.BlipDuration = tonumber(Config.BlipDuration) or 30
 
 local DEBUG = Config.Debug == true
 
--- shopStates: shopName -> { [locIndex] = closedUntilEpochSeconds }
+
 local shopStates = {}
 
 local isShopOpen = false
-local currentShop = nil -- { shop=shopTable, loc=vecTable, locIndex=n }
+local currentShop = nil 
 
 local viewingOther = false
 local viewingOwnerId = nil
@@ -55,10 +60,13 @@ local viewingOwnerName = nil
 
 local shopBlips = {}
 local spawnedPeds = {}
+local shopRuntime = {}
+local defsCache = nil
+local dropModelHash = GetHashKey('prop_med_bag_01b')
 
--- -----------------------------
--- Helpers
--- -----------------------------
+
+
+
 local jsonEncode = (json and json.encode) or EncodeJson
 
 local function dprint(...)
@@ -74,8 +82,8 @@ local function ShowNotification(text)
   DrawNotification(false, false)
 end
 
--- time handling (robbery cooldown)
-local serverTimeOffset = 0 -- serverEpochSeconds - floor(GetGameTimer()/1000)
+
+local serverTimeOffset = 0 
 
 local function currentTimeSeconds()
   if type(os) == "table" and type(os.time) == "function" then
@@ -188,6 +196,8 @@ local function enrichShopForUI(shop)
 end
 
 local function buildDefs()
+  if defsCache then return defsCache end
+
   local safe = {}
   for name, d in pairs(Items) do
     safe[name] = {
@@ -219,7 +229,9 @@ local function buildDefs()
       end
     end
   end
-  return safe
+
+  defsCache = safe
+  return defsCache
 end
 
 local function pushUI(action, meta)
@@ -386,9 +398,9 @@ local function openVehicleStorage(kind)
   TriggerServerEvent('inventory:openVehicleStorage', { kind = kind, plate = plate })
 end
 
--- -----------------------------
--- Shop helpers
--- -----------------------------
+
+
+
 local function getShopLocations(shop)
   if not shop then return {} end
 
@@ -442,6 +454,32 @@ local function getShopPedLocations(shop)
   return {}
 end
 
+local function rebuildShopRuntime()
+  shopRuntime = {}
+
+  for _, shop in ipairs(Shops) do
+    local runtime = {
+      shop = shop,
+      radius = tonumber(shop.radius) or 2.0,
+      locations = {},
+      pedLocations = getShopPedLocations(shop),
+    }
+
+    for _, loc in ipairs(getShopLocations(shop)) do
+      if loc and loc.x and loc.y and loc.z then
+        runtime.locations[#runtime.locations + 1] = {
+          x = loc.x,
+          y = loc.y,
+          z = loc.z,
+          vec = vector3(loc.x, loc.y, loc.z),
+        }
+      end
+    end
+
+    shopRuntime[#shopRuntime + 1] = runtime
+  end
+end
+
 local function LoadModel(hash)
   if not HasModelLoaded(hash) then
     RequestModel(hash)
@@ -458,19 +496,22 @@ local function LoadModel(hash)
   return true
 end
 
--- -----------------------------
--- Startup
--- -----------------------------
+
+
+
 print(('[Az-Inventory] client loaded (%s)'):format(RESOURCE))
 
 CreateThread(function()
   local totalLocs = 0
 
-  for _, shop in ipairs(Shops) do
-    local locs = getShopLocations(shop)
+  rebuildShopRuntime()
+
+  for _, runtime in ipairs(shopRuntime) do
+    local shop = runtime.shop
+    local locs = runtime.locations
     totalLocs = totalLocs + #locs
 
-    -- Blips per-location
+    
     if shop.blip and #locs > 0 then
       local ok, err = pcall(function()
         for _, loc in ipairs(locs) do
@@ -496,8 +537,8 @@ CreateThread(function()
       end
     end
 
-    -- Peds per-location
-    local pedLocs = getShopPedLocations(shop)
+    
+    local pedLocs = runtime.pedLocations
     if shop.ped and #pedLocs > 0 then
       local ok, err = pcall(function()
         local m = shop.ped.model
@@ -537,9 +578,9 @@ AddEventHandler('onResourceStop', function(resName)
   end
 end)
 
--- -----------------------------
--- Police robbery alert (client)
--- -----------------------------
+
+
+
 RegisterNetEvent('shop:robberyAlertPolice', function(data)
   if DEBUG then print("[shop:robberyAlertPolice] received:", safeSerialize(data)) end
   data = data or {}
@@ -592,9 +633,9 @@ RegisterNetEvent('shop:robberyAlert', function(data)
   end
 end)
 
--- -----------------------------
--- Give weapon (server -> client)
--- -----------------------------
+
+
+
 RegisterNetEvent('inventory:giveWeapon', function(weaponName, ammo)
   if DEBUG then
     print(("[inventory-client] giveWeapon -> name=%s ammo=%s"):format(tostring(weaponName), tostring(ammo)))
@@ -621,9 +662,9 @@ RegisterNetEvent('inventory:giveWeapon', function(weaponName, ammo)
   end
 end)
 
--- -----------------------------
--- NUI callbacks
--- -----------------------------
+
+
+
 RegisterNUICallback('buyItem', function(data, cb)
   if viewingOther then
     ShowNotification("Cannot buy items while viewing another player's inventory.")
@@ -641,7 +682,7 @@ RegisterNUICallback('buyItem', function(data, cb)
   cb({ success = true })
 end)
 
--- closeUI: if shop open, close shop; else close inventory
+
 RegisterNUICallback('closeUI', function(_, cb)
   if isShopOpen then
     SendNUIMessage({ action = 'hideShop' })
@@ -661,7 +702,7 @@ RegisterNUICallback('closeUI', function(_, cb)
   cb({})
 end)
 
--- inventory close alias
+
 RegisterNUICallback('close', function(_, cb)
   clearStorageView(true)
   pushUI('hide')
@@ -795,9 +836,9 @@ RegisterNUICallback('storageWithdraw', function(data, cb)
   cb({ success = true })
 end)
 
--- -----------------------------
--- Inventory refresh
--- -----------------------------
+
+
+
 RegisterNetEvent('inventory:refresh', function(inv, w, mw)
   inventory = inv or {}
   currentWeight = w or 0.0
@@ -812,13 +853,13 @@ RegisterNetEvent('inventory:refresh', function(inv, w, mw)
   emitOxInventorySync()
 end)
 
--- -----------------------------
--- Shop robbed state sync
--- -----------------------------
+
+
+
 RegisterNetEvent('shop:markRobbed', function(shopName, a, b)
   if not shopName then return end
 
-  -- old style: (shopName, closedUntil)
+  
   if b == nil and type(a) == 'number' then
     local closedUntil = tonumber(a)
     shopStates[shopName] = shopStates[shopName] or {}
@@ -841,7 +882,7 @@ RegisterNetEvent('shop:markRobbed', function(shopName, a, b)
     return
   end
 
-  -- new style: (shopName, locIndex, closedUntil)
+  
   local locIndex = tonumber(a) or 1
   local closedUntil = tonumber(b)
 
@@ -903,104 +944,102 @@ AddEventHandler('onClientResourceStart', function(res)
   TriggerServerEvent('inventory:refreshRequest')
 end)
 
--- -----------------------------
--- Shop proximity loop (E open, H rob)
--- -----------------------------
+
+
+
 CreateThread(function()
   while true do
-    Wait(0)
+    local waitMs = isShopOpen and 0 or 250
 
     local playerPed = PlayerPedId()
     local pos = GetEntityCoords(playerPed)
     local foundAny = false
+    local nearestDist = math.huge
 
-    for _, shop in ipairs(Shops) do
-      local locs = getShopLocations(shop)
-      local radius = tonumber(shop.radius) or 2.0
+    for _, runtime in ipairs(shopRuntime) do
+      local shop = runtime.shop
+      local radius = runtime.radius
 
-      for locIndex, loc in ipairs(locs) do
-        if loc and loc.x and loc.y and loc.z then
-          local dist = #(pos - vector3(loc.x, loc.y, loc.z))
-          if dist < radius then
-            foundAny = true
+      for locIndex, loc in ipairs(runtime.locations) do
+        local dist = #(pos - loc.vec)
+        if dist < nearestDist then nearestDist = dist end
 
-            local closedEntry = shopStates[shop.name] or {}
-            local closedUntil = closedEntry[locIndex]
-            local now = currentTimeSeconds()
-            local isRobbable = (shop.robbable ~= false)
+        if dist < radius then
+          foundAny = true
+          waitMs = 0
 
-            if closedUntil and closedUntil > now then
-              DrawMarker(2, loc.x, loc.y, loc.z + 0.3, 0,0,0,0,0,0,0.4,0.4,0.4,255,50,50,100,false,true)
-              local remaining = closedUntil - now
-              DrawText3D(loc.x, loc.y, loc.z + 0.6, ('~r~Closed (robbed) - %02dm %02ds'):format(math.floor(remaining/60), remaining % 60))
+          local closedEntry = shopStates[shop.name] or {}
+          local closedUntil = closedEntry[locIndex]
+          local now = currentTimeSeconds()
+          local isRobbable = (shop.robbable ~= false)
+
+          if closedUntil and closedUntil > now then
+            DrawMarker(2, loc.x, loc.y, loc.z + 0.3, 0,0,0,0,0,0,0.4,0.4,0.4,255,50,50,100,false,true)
+            local remaining = closedUntil - now
+            DrawText3D(loc.x, loc.y, loc.z + 0.6, ('~r~Closed (robbed) - %02dm %02ds'):format(math.floor(remaining/60), remaining % 60))
+          else
+            DrawMarker(2, loc.x, loc.y, loc.z + 0.3, 0,0,0,0,0,0,0.4,0.4,0.4,0,255,100,100,false,true)
+            if isRobbable then
+              DrawText3D(loc.x, loc.y, loc.z + 0.6, '[~g~E~w~] Open Shop    [~r~H~w~] Rob Shop')
             else
-              DrawMarker(2, loc.x, loc.y, loc.z + 0.3, 0,0,0,0,0,0,0.4,0.4,0.4,0,255,100,100,false,true)
-              if isRobbable then
-                DrawText3D(loc.x, loc.y, loc.z + 0.6, '[~g~E~w~] Open Shop    [~r~H~w~] Rob Shop')
-              else
-                DrawText3D(loc.x, loc.y, loc.z + 0.6, '[~g~E~w~] Open Shop')
-              end
+              DrawText3D(loc.x, loc.y, loc.z + 0.6, '[~g~E~w~] Open Shop')
             end
-
-            -- OPEN (E)
-            if not isShopOpen and IsControlJustReleased(0, 38) then
-              local now2 = currentTimeSeconds()
-              if closedUntil and closedUntil > now2 then
-                local remaining = closedUntil - now2
-                ShowNotification(('This shop location is closed due to a recent robbery. Reopens in %dm %ds'):format(math.floor(remaining/60), remaining % 60))
-              else
-                if open then
-                  clearStorageView(true)
-                  pushUI('hide')
-                  SetNuiFocus(false, false)
-                  open = false
-                  viewingOther = false
-                  viewingOwnerId = nil
-                  viewingOwnerName = nil
-                end
-
-                currentShop = { shop = shop, loc = loc, locIndex = locIndex }
-                local enriched = enrichShopForUI(shop)
-                SendNUIMessage({ action = 'showShop', shop = enriched, defs = buildDefs() })
-                SetNuiFocus(true, true)
-                isShopOpen = true
-              end
-            end
-
-            -- ROB (H)
-            if IsControlJustPressed(0, 74) then
-              if not isRobbable then
-                ShowNotification("~r~This shop cannot be robbed.")
-              else
-                local now3 = currentTimeSeconds()
-                if closedUntil and closedUntil > now3 then
-                  local remaining = closedUntil - now3
-                  ShowNotification(('Shop is closed. Reopens in %dm %02ds'):format(math.floor(remaining/60), remaining % 60))
-                else
-                  local pedWeapon = GetSelectedPedWeapon(playerPed)
-                  local isUnarmed = (pedWeapon == GetHashKey("WEAPON_UNARMED"))
-                  local freeAiming = IsPlayerFreeAiming(PlayerId())
-                  local targetting = IsPlayerTargettingAnything(PlayerId())
-
-                  local holdingAim = (not isUnarmed) and (freeAiming or targetting or IsControlPressed(0, 24))
-
-                  if not holdingAim then
-                    ShowNotification("~r~You must be holding and aiming a firearm to rob the shop.")
-                  else
-                    local pedPos = GetEntityCoords(playerPed)
-                    TriggerServerEvent('shop:attemptRob', shop.name, pedPos.x, pedPos.y, pedPos.z)
-                  end
-                end
-              end
-            end
-
-            break
           end
+
+          if not isShopOpen and IsControlJustReleased(0, 38) then
+            local now2 = currentTimeSeconds()
+            if closedUntil and closedUntil > now2 then
+              local remaining = closedUntil - now2
+              ShowNotification(('This shop location is closed due to a recent robbery. Reopens in %dm %ds'):format(math.floor(remaining/60), remaining % 60))
+            else
+              if open then
+                clearStorageView(true)
+                pushUI('hide')
+                SetNuiFocus(false, false)
+                open = false
+                viewingOther = false
+                viewingOwnerId = nil
+                viewingOwnerName = nil
+              end
+
+              currentShop = { shop = shop, loc = loc, locIndex = locIndex }
+              local enriched = enrichShopForUI(shop)
+              SendNUIMessage({ action = 'showShop', shop = enriched, defs = buildDefs() })
+              SetNuiFocus(true, true)
+              isShopOpen = true
+            end
+          end
+
+          if IsControlJustPressed(0, 74) then
+            if not isRobbable then
+              ShowNotification("~r~This shop cannot be robbed.")
+            else
+              local now3 = currentTimeSeconds()
+              if closedUntil and closedUntil > now3 then
+                local remaining = closedUntil - now3
+                ShowNotification(('Shop is closed. Reopens in %dm %02ds'):format(math.floor(remaining/60), remaining % 60))
+              else
+                local pedWeapon = GetSelectedPedWeapon(playerPed)
+                local isUnarmed = (pedWeapon == GetHashKey("WEAPON_UNARMED"))
+                local freeAiming = IsPlayerFreeAiming(PlayerId())
+                local targetting = IsPlayerTargettingAnything(PlayerId())
+                local holdingAim = (not isUnarmed) and (freeAiming or targetting or IsControlPressed(0, 24))
+
+                if not holdingAim then
+                  ShowNotification("~r~You must be holding and aiming a firearm to rob the shop.")
+                else
+                  local pedPos = GetEntityCoords(playerPed)
+                  TriggerServerEvent('shop:attemptRob', shop.name, pedPos.x, pedPos.y, pedPos.z)
+                end
+              end
+            end
+          end
+
+          break
         end
       end
     end
 
-    -- walked away while shop open -> close it
     if isShopOpen and not foundAny then
       SendNUIMessage({ action = 'hideShop' })
       if open then
@@ -1015,14 +1054,24 @@ CreateThread(function()
       isShopOpen = false
       currentShop = nil
     end
+
+    if not isShopOpen then
+      if nearestDist < 12.0 then
+        waitMs = 0
+      elseif nearestDist < 40.0 then
+        waitMs = math.min(waitMs, 100)
+      end
+    end
+
+    Wait(waitMs)
   end
 end)
 
--- ESC/back closes UI (shop or inventory)
+
 CreateThread(function()
   while true do
-    Wait(0)
     if isShopOpen or open then
+      Wait(0)
       if IsControlJustReleased(0, 322) or IsControlJustReleased(0, 200) then
         if isShopOpen then
           SendNUIMessage({ action = 'hideShop' })
@@ -1039,13 +1088,15 @@ CreateThread(function()
         end
         SetNuiFocus(false, false)
       end
+    else
+      Wait(200)
     end
   end
 end)
 
--- =========================================================
--- Inventory toggle (command + keymapping) - FIXED
--- =========================================================
+
+
+
 local lastToggleAt = 0
 
 local function _toggleInventory()
@@ -1053,7 +1104,7 @@ local function _toggleInventory()
   if (now - lastToggleAt) < 250 then return end
   lastToggleAt = now
 
-  -- If shop is open, close shop first (prevents weird focus fights)
+  
   if isShopOpen then
     SendNUIMessage({ action = 'hideShop' })
     isShopOpen = false
@@ -1095,22 +1146,24 @@ end, false)
 
 RegisterKeyMapping('azinv', 'Toggle Az-Inventory', 'keyboard', tostring(Config.Control.DefaultKey or 'F2'))
 
--- Control-index fallback ONLY if keymapping is disabled
+
 CreateThread(function()
   while true do
-    Wait(0)
     if Config.Control.UseKeyMapping == false then
+      Wait(0)
       local openKey = tonumber(Config.Control.ToggleInventory) or 0
       if openKey > 0 and IsControlJustPressed(0, openKey) then
         _toggleInventory()
       end
+    else
+      Wait(250)
     end
   end
 end)
 
--- -----------------------------
--- Allow server to force open/close (optional)
--- -----------------------------
+
+
+
 RegisterNetEvent('inventory:clientOpen', function()
   if not open then _toggleInventory() end
 end)
@@ -1185,19 +1238,19 @@ end, false)
 RegisterKeyMapping('aztrunk', 'Open vehicle trunk storage', 'keyboard', tostring((Config.VehicleStorage and Config.VehicleStorage.DefaultTrunkKey) or 'K'))
 RegisterKeyMapping('azglovebox', 'Open vehicle glovebox storage', 'keyboard', tostring((Config.VehicleStorage and Config.VehicleStorage.DefaultGloveboxKey) or 'L'))
 
--- -----------------------------
--- World drops
--- -----------------------------
+
+
+
 RegisterNetEvent('inventory:spawnDrop', function(drop)
   if not drop or not drop.coords or not drop.id then return end
   local x, y, z = drop.coords.x, drop.coords.y, drop.coords.z
 
-  local modelName = 'prop_med_bag_01b'
-  local modelHash = GetHashKey(modelName)
-  RequestModel(modelHash)
-  while not HasModelLoaded(modelHash) do Wait(10) end
+  if not HasModelLoaded(dropModelHash) then
+    RequestModel(dropModelHash)
+    while not HasModelLoaded(dropModelHash) do Wait(10) end
+  end
 
-  local obj = CreateObject(modelHash, x, y, z + 1.0, true, true, false)
+  local obj = CreateObject(dropModelHash, x, y, z + 1.0, true, true, false)
   NetworkRegisterEntityAsNetworked(obj)
   worldDrops[drop.id] = ObjToNet(obj)
 end)
@@ -1213,7 +1266,7 @@ end)
 
 CreateThread(function()
   while true do
-    Wait(0)
+    local waitMs = 300
     local ped = PlayerPedId()
     local pcoords = GetEntityCoords(ped)
 
@@ -1221,21 +1274,28 @@ CreateThread(function()
       local obj = NetToObj(netId)
       if DoesEntityExist(obj) then
         local coords = GetEntityCoords(obj)
-        if #(pcoords - coords) < 1.5 then
+        local dist = #(pcoords - coords)
+
+        if dist < 1.5 then
+          waitMs = 0
           DrawText3D(coords.x, coords.y, coords.z + 0.3, '[~g~E~w~] Pick up')
           if IsControlJustReleased(0, 38) then
             TriggerServerEvent('inventory:pickupDrop', dropId)
             TriggerServerEvent('inventory:refreshRequest')
           end
+        elseif dist < 12.0 then
+          waitMs = math.min(waitMs, 100)
         end
       end
     end
+
+    Wait(waitMs)
   end
 end)
 
--- -----------------------------
--- DrawText3D
--- -----------------------------
+
+
+
 function DrawText3D(x, y, z, text, scale)
   scale = scale or 0.35
   SetTextScale(scale, scale)

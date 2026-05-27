@@ -1,12 +1,12 @@
--- shops.lua
--- Define your shops here. Each shop can include coords, radius, items,
--- optional ped definition, optional blip definition, and optional `robbable` flag.
--- By default a shop is robbable unless you explicitly set `robbable = false`.
+
+
+
+
 
 Shops = {
   {
     name   = "General Store",
-    -- keep coords for compatibility, but prefer 'locations' for multiple spots
+    
     coords = vector3(-47.4, -1757.2, 29.4),
     locations = {
       vector3(-47.4, -1757.2, 29.4),
@@ -23,7 +23,7 @@ Shops = {
       
     },
     radius = 2.0,
-    robbable = true, -- optional: true by default if omitted
+    robbable = true, 
     items  = {
       { name = "bread",  price = 5 },
       { name = "water",  price = 3 },
@@ -109,12 +109,12 @@ Shops = {
     }
   },
 
-  -- Police Armory: only accessible to police/sheriff jobs
+  
   {
     name   = "Police Armory",
     coords = vector3(454.2, -990.1, 30.6),
     radius = 2.0,
-    robbable = false, -- police armory should NOT be robbable
+    robbable = false, 
     jobs   = { "Police", "sheriff" },
     items  = {
       { name = "pistol",  price = 100 },
@@ -131,12 +131,12 @@ Shops = {
     }
   },
 
-  -- Mechanic tools: make this NOT robbable
+  
   {
     name   = "Mechanic Tools",
     coords = vector3(-338.1, -137.6, 38.0),
     radius = 2.0,
-    robbable = false, -- <- mechanic shop cannot be robbed
+    robbable = false, 
     items  = {
       { name = "repair_kit", price = 150, jobs = { "mechanic" } },
       { name = "toolbox",    price = 200, jobs = { "mechanic" } },

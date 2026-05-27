@@ -9,11 +9,11 @@ Items = {
     close       = true,
     consume     = 1,
     allowArmed  = false,
-    -- server-side hook: either an event name or export "resource:Function"
+    
     server      = { event = "bread:serverUse", export = nil },
-    -- client-side hook (will be triggered on player client)
+    
     client      = { event = "bread:clientUse", export = nil },
-    event       = "bread:eaten", -- legacy field (kept for compatibility)
+    event       = "bread:eaten", 
     status      = { hunger = 200000 },
     anim        = { dict="mp_player_inteat@burger", clip="mp_player_int_eat_burger" },
     prop        = {
@@ -29,7 +29,7 @@ Items = {
       { label="Share",   action=function(slot) print("Share slot",slot) end },
       { label="Inspect", action=function(slot) print("Inspect slot",slot) end },
     },
-    category    = "food",        -- ← here
+    category    = "food",        
     imageUrl    = "https://cdn.imgbin.com/6/12/8/imgbin-bread-y1UUXsEqPpfLzpMbNRMEePuj0.jpg",
   },
 
@@ -62,10 +62,10 @@ Items = {
       { label="Sharpen", action=function(slot) print("Sharpen slot",slot) end },
     },
     category    = "tools",
-    image       = "pickaxe.png",  -- will load from `img/pickaxe.png`
+    image       = "pickaxe.png",  
   },
 
-  -- Example additional items
+  
   bandage = {
     label       = "Bandage",
     description = "Stops minor bleeding and heals a small amount.",
@@ -93,17 +93,17 @@ medkit = {
   server      = { event = "medkit:serverUse", export = nil },
   client      = { event = "medkit:clientUse", export = nil },
   status      = { health = 150000, bleed = -1, pain = -1 },
-  -- animation: explicit duration = usetime (ms), non-looping flag
+  
   anim        = {
     dict        = "amb@medic@standing@tendtodead@base",
     clip        = "base",
-    duration    = 5000,    -- <-- match usetime (ms)
-    flag        = 0,       -- non-looping safe default; you can change if you need looping
+    duration    = 5000,    
+    flag        = 0,       
     blendIn     = 8.0,
     blendOut    = -8.0,
     playbackRate = 1.0,
   },
-  -- prop attached to hand (tweak pos/rot as needed)
+  
   prop        = {
     model = "prop_ld_case_01",
     pos = { x = 0.08, y = 0.02, z = -0.02 },
@@ -166,8 +166,8 @@ medkit = {
     consume     = 0,
     close       = true,
     category    = "weapon",
-    weaponName  = "WEAPON_PISTOL",  -- the native weapon hash name
-    ammo        = 50,               -- optional starting ammo
+    weaponName  = "WEAPON_PISTOL",  
+    ammo        = 50,               
     image       = "pistol.png",
   },
 

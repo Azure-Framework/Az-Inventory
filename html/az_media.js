@@ -89,7 +89,7 @@
   function applyItemImage(imgEl, item) {
     if (!imgEl) return;
 
-    // If item already has an explicit image, still allow fallback if it fails.
+
     const explicit = item?.image || item?.img || item?.icon;
     if (explicit) {
       setImgFallback(imgEl, [explicit, CFG.weapons?.placeholder || DEFAULT_CFG.weapons.placeholder]);
@@ -97,7 +97,7 @@
     }
 
     if (!isWeaponLike(item)) {
-      // Non-weapon: leave as-is or use your own item placeholder
+
       return;
     }
 
