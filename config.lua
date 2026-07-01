@@ -59,7 +59,6 @@ Config.VehicleStorage.RequireUnlocked = (Config.VehicleStorage.RequireUnlocked ~
 Config.VehicleStorage.OpenTrunkDoor = (Config.VehicleStorage.OpenTrunkDoor ~= false)
 Config.VehicleStorage.CloseTrunkOnClose = (Config.VehicleStorage.CloseTrunkOnClose ~= false)
 Config.VehicleStorage.DefaultTrunkKey = Config.VehicleStorage.DefaultTrunkKey or 'K'
-Config.VehicleStorage.DefaultGloveboxKey = Config.VehicleStorage.DefaultGloveboxKey or 'L'
 Config.VehicleStorage.BlockedClasses = Config.VehicleStorage.BlockedClasses or {
   [8] = true,  
   [13] = true, 

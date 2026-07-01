@@ -1,7 +1,7 @@
 fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
-author 'MadebyAzure'
+author 'MadebyAzure, Zhahna'
 description 'AZ-Framework NUI Inventory'
 version '1.4.1'
 
