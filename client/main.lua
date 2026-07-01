@@ -663,6 +663,19 @@ RegisterNetEvent('inventory:giveWeapon', function(weaponName, ammo)
 end)
 
 
+RegisterNetEvent('inventory:removeWeapon', function(weaponName)
+  if not weaponName then return end
+
+  local ped = PlayerPedId()
+  local hash = (type(weaponName) == 'string') and GetHashKey(weaponName) or tonumber(weaponName)
+  if not hash or hash == 0 then return end
+
+  if GetSelectedPedWeapon(ped) == hash then
+    SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true)
+  end
+
+  RemoveWeaponFromPed(ped, hash)
+end)
 
 
 RegisterNUICallback('buyItem', function(data, cb)
@@ -1121,6 +1134,16 @@ local function _toggleInventory()
     return
   end
 
+  -- The inventory key is context-aware: while seated in a vehicle it opens
+  -- that vehicle's glovebox instead of the standalone player inventory.
+  if not open
+      and Config.VehicleStorage
+      and Config.VehicleStorage.Enabled ~= false
+      and IsPedInAnyVehicle(PlayerPedId(), false) then
+    openVehicleStorage('glovebox')
+    return
+  end
+
   open = not open
   SetNuiFocus(open, open)
 
@@ -1236,7 +1259,6 @@ RegisterCommand('azglovebox', function()
 end, false)
 
 RegisterKeyMapping('aztrunk', 'Open vehicle trunk storage', 'keyboard', tostring((Config.VehicleStorage and Config.VehicleStorage.DefaultTrunkKey) or 'K'))
-RegisterKeyMapping('azglovebox', 'Open vehicle glovebox storage', 'keyboard', tostring((Config.VehicleStorage and Config.VehicleStorage.DefaultGloveboxKey) or 'L'))
 
 
 
@@ -1250,7 +1272,18 @@ RegisterNetEvent('inventory:spawnDrop', function(drop)
     while not HasModelLoaded(dropModelHash) do Wait(10) end
   end
 
-  local obj = CreateObject(dropModelHash, x, y, z + 1.0, true, true, false)
+  RequestCollisionAtCoord(x, y, z)
+
+  local obj = CreateObjectNoOffset(dropModelHash, x, y, z + 0.2, true, true, false)
+  if not obj or obj == 0 or not DoesEntityExist(obj) then return end
+
+  for _ = 1, 20 do
+    if HasCollisionLoadedAroundEntity(obj) then break end
+    Wait(0)
+  end
+
+  PlaceObjectOnGroundProperly(obj)
+  FreezeEntityPosition(obj, true)
   NetworkRegisterEntityAsNetworked(obj)
   worldDrops[drop.id] = ObjToNet(obj)
 end)

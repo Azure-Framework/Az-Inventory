@@ -664,6 +664,16 @@ local function sendInv(src)
 end
 
 
+local function removeWeaponIfNoLongerOwned(src, itemKey, remainingCount)
+  if (tonumber(remainingCount) or 0) > 0 then return end
+
+  local def = Items and Items[itemKey]
+  local weaponName = def and (def.weaponName or def.weapon)
+  if weaponName then
+    TriggerClientEvent('inventory:removeWeapon', src, weaponName)
+  end
+end
+
 RegisterNetEvent('inventory:openVehicleStorage')
 AddEventHandler('inventory:openVehicleStorage', function(payload)
   local src = source
@@ -768,6 +778,10 @@ AddEventHandler('inventory:transferVehicleStorage', function(kind, plate, direct
   end
   if not ok2 then
     print(('[Az-Inventory] storage save failed for %s %s %s: %s'):format(tostring(plate), tostring(kind), tostring(itemKey), tostring(err2)))
+  end
+
+  if direction == 'deposit' then
+    removeWeaponIfNoLongerOwned(src, itemKey, playerInv[itemKey])
   end
 
   if kind == 'stash' then sendStashState(src, plate) else sendVehicleStorageState(src, kind, plate) end
@@ -1195,6 +1209,7 @@ RegisterCommand("removeitem", function(src, args)
   if inv[key] <= 0 then inv[key] = nil end
   saveItemSlot(src, key)
   sendInv(src)
+  removeWeaponIfNoLongerOwned(src, key, inv[key])
   safeNotify(src, ("Removed %d× %s"):format(qty, Items[key] and Items[key].label or key), { type = "success", title = "Inventory" })
 end, false)
 
@@ -1353,6 +1368,7 @@ AddEventHandler("inventory:dropItem", function(itemKey, x, y, z, qty)
 
   saveItemSlot(src, itemKey)
   sendInv(src)
+  removeWeaponIfNoLongerOwned(src, itemKey, inv[itemKey])
 
   local dropId = nextDropId
   nextDropId = nextDropId + 1
@@ -2159,6 +2175,7 @@ exports('RemoveItem', function(src, item, count, metadata, slot)
   end
   saveItemSlot(src, item)
   sendInv(src)
+  removeWeaponIfNoLongerOwned(src, item, inv[item])
   return true
 end)
 exports('SetMetadata', function(src, slot, metadata)
@@ -2302,6 +2319,7 @@ exports('SetItem', function(src, item, count, metadata)
   if count <= 0 then inv[item] = nil else inv[item] = count end
   saveItemSlot(src, item)
   sendInv(src)
+  removeWeaponIfNoLongerOwned(src, item, inv[item])
   return true
 end)
 exports('GetCurrentWeapon', function(src)
